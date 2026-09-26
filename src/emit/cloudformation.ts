@@ -14,6 +14,14 @@ import type {YamlMap, YamlNode} from './yaml';
 // provisioned table gets min = max = its current WCU; READ capacity is per
 // replica (and per replica GSI); TableClass and DeletionProtectionEnabled are
 // per replica too.
+//
+// Verified against aws-dynamodb-globaltable.json (CloudformationSchema.zip,
+// 2026-09-26): GSI `KeySchema` takes 1–8 elements, so a multi-attribute GSI
+// (fixture e, 2 HASH + 2 RANGE) is emitted, not refused; vector `SearchSchema`
+// attributes are ordinary `AttributeDefinitions` entries (the service refuses
+// an index whose SearchSchema names an undeclared attribute), hence
+// `referencedAttributes(spec, {vectorIndexes: true})`; `WarmThroughput` exists
+// on the table and per GSI and is deliberately never emitted (NOT_EMITTED).
 
 const TARGET_UTILIZATION = 70;
 const DESCRIPTION_LIMIT = 1024;
