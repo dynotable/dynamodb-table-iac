@@ -56,9 +56,17 @@ describe('emitCloudFormation — invariants stated from the fixtures', () => {
   it.each([
     ['a-core', ['pk', 'sk', 'gsi1pk', 'createdAt', 'status']],
     ['b-provisioned', ['pk', 'sk', 'email', 'score']],
+    ['b-hash-only', ['id']],
+    ['c-stream', ['pk']],
+    ['c-extras-aws', ['pk']],
     ['d-vector', ['pk', 'sk', 'tenant', 'category']],
     ['e-multikey-gsi', ['pk', 'sk', 'tenant', 'kind', 'ts', 'actor']],
-    ['h1-eventual-ondemand', ['pk', 'sk', 'userId']]
+    ['f-hostile', ['pk"quote', 'sk${interp}', '%{directive}', 'back\\slash', 'new\nline']],
+    ['h1-eventual-ondemand', ['pk', 'sk', 'userId']],
+    ['h2-eventual-provisioned', ['pk', 'sk', 'account']],
+    ['h3-strong-cross-continent', ['pk', 'sk']],
+    ['h4-strong-witness', ['pk']],
+    ['i-regionless', ['pk', 'sk', 'email', 'score']]
   ] as const)('%s declares exactly the key (and search-schema) attributes', (name, expected) => {
     const props = Object.values(template(name).Resources)[0]?.Properties as {
       AttributeDefinitions: Array<{AttributeName: string}>;
@@ -66,27 +74,39 @@ describe('emitCloudFormation — invariants stated from the fixtures', () => {
     expect(props.AttributeDefinitions.map((a) => a.AttributeName).sort()).toEqual([...expected].sort());
   });
 
+  // Home first, then every raw replica that is neither DELETING nor in another
+  // account (h1 drops sa-east-1 and eu-central-1 for those two reasons); a
+  // region-less golden's sole replica is the stack's own region.
   it.each([
     ['a-core', ['us-east-1']],
+    ['b-provisioned', ['us-east-1']],
+    ['b-hash-only', ['us-east-1']],
+    ['c-stream', ['us-east-1']],
+    ['c-extras-aws', ['eu-west-1']],
+    ['d-vector', ['us-east-1']],
+    ['e-multikey-gsi', ['us-east-1']],
+    ['f-hostile', ['us-east-1']],
     ['h1-eventual-ondemand', ['us-east-1', 'eu-west-1', 'ap-northeast-1']],
     ['h2-eventual-provisioned', ['us-east-1', 'eu-west-1']],
     ['h3-strong-cross-continent', ['us-east-1', 'eu-west-1', 'ap-northeast-1']],
-    ['h4-strong-witness', ['us-east-1', 'us-east-2']]
+    ['h4-strong-witness', ['us-east-1', 'us-east-2']],
+    ['i-regionless', [{Ref: 'AWS::Region'}]]
   ] as const)('%s lists the home region first, then every kept replica', (name, expected) => {
     const props = Object.values(template(name).Resources)[0]?.Properties as {
-      Replicas: Array<{Region: string}>;
+      Replicas: Array<{Region: unknown}>;
     };
-    // h1: sa-east-1 is DELETING and eu-central-1 belongs to another account — neither may appear.
     expect(props.Replicas.map((r) => r.Region)).toEqual(expected);
   });
 
-  it('puts DeletionProtectionEnabled on the home replica only', () => {
-    const props = Object.values(template('h2-eventual-provisioned').Resources)[0]?.Properties as {
-      Replicas: Array<{Region: string; DeletionProtectionEnabled?: boolean}>;
+  // Only a-core and h2 carry DeletionProtectionEnabled in their raw fixtures.
+  it.each(GOLDEN_NAMES)('%s puts DeletionProtectionEnabled on the home replica only', (name) => {
+    const props = Object.values(template(name).Resources)[0]?.Properties as {
+      Replicas: Array<{DeletionProtectionEnabled?: boolean}>;
     };
-    expect(props.Replicas.map((r) => [r.Region, r.DeletionProtectionEnabled])).toEqual([
-      ['us-east-1', true],
-      ['eu-west-1', undefined]
+    const protectedHome = name === 'a-core' || name === 'h2-eventual-provisioned';
+    expect(props.Replicas.map((r) => r.DeletionProtectionEnabled)).toEqual([
+      protectedHome ? true : undefined,
+      ...props.Replicas.slice(1).map(() => undefined)
     ]);
   });
 

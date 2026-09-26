@@ -42,6 +42,7 @@ resource "aws_dynamodb_table" "ledger" {
   write_capacity              = 10
   stream_enabled              = true
   stream_view_type            = "NEW_AND_OLD_IMAGES"
+  table_class                 = "STANDARD_INFREQUENT_ACCESS"
   deletion_protection_enabled = true
 
   attribute {
@@ -79,9 +80,10 @@ resource "aws_dynamodb_table" "ledger" {
   # Replica blocks default point_in_time_recovery, deletion_protection_enabled and
   # propagate_tags to false: applying this file turns them off on the replicas
   # below unless you set them here.
-  # NOT EMITTED: replica eu-west-1 overrides — read capacity 7, index "by-account" read capacity 3 (the replica block has no such arguments).
+  # NOT EMITTED: replica eu-west-1 overrides — table class STANDARD, read capacity 7, index "by-account" read capacity 3 (the replica block has no such arguments).
   replica {
-    region_name = "eu-west-1"
+    region_name      = "eu-west-1"
+    consistency_mode = "EVENTUAL"
   }
 
   # Replicas of a provisioned global table are normally auto-scaled; keep Terraform

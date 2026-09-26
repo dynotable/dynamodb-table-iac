@@ -73,10 +73,12 @@ resource "aws_dynamodb_table" "sessions" {
   # below unless you set them here.
   # NOT EMITTED: replica eu-west-1 overrides — table class STANDARD_INFREQUENT_ACCESS, on-demand max read 500, index "by-user" on-demand max read 100 (the replica block has no such arguments).
   replica {
-    region_name = "eu-west-1"
+    region_name      = "eu-west-1"
+    consistency_mode = "EVENTUAL"
   }
 
   replica {
-    region_name = "ap-northeast-1"
+    region_name      = "ap-northeast-1"
+    consistency_mode = "EVENTUAL"
   }
 }

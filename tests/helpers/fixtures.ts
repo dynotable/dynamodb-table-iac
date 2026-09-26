@@ -26,7 +26,9 @@ export function fixtureInput(
   let timeToLive: TimeToLiveDescription | undefined;
   try {
     timeToLive = fixtureTtl(name);
-  } catch {
+  } catch (error) {
+    // Only a missing sidecar means "not provided"; a malformed one is a broken fixture.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     timeToLive = undefined;
   }
   return {table: fixtureTable(name), timeToLive, ...overrides};

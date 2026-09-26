@@ -4,7 +4,7 @@ import {normalize, referencedAttributes} from '../normalize';
 import type {GsiSpec, ReplicaSpec, TableSpec, VectorIndexSpec} from '../normalize';
 import {NOT_EMITTED} from '../not-emitted';
 import type {EmitResult, TableDefinitionInput} from '../types';
-import {REGION_UNKNOWN_PREFIX, sourceDescription} from './common';
+import {effectiveStreamView, headerNotes, sourceDescription} from './common';
 
 // Terraform `aws_dynamodb_table` (hashicorp/aws >= 6.29 — GSI keys as repeated
 // `key_schema` blocks, which the provider deprecated `hash_key`/`range_key`
@@ -13,13 +13,9 @@ import {REGION_UNKNOWN_PREFIX, sourceDescription} from './common';
 // one blank line.
 
 const PROVIDER_CONSTRAINT = '~> 6.29';
-const PROVIDER_MAJOR_FOR_VECTORS = 'v6.66';
+const PROVIDER_VERSION_CHECKED_FOR_VECTORS = 'v6.66';
 
 type Attr = [name: string, literal: string];
-
-function q(value: string): string {
-  return quoteForComment(value);
-}
 
 /** Aligned `name = literal` lines, the way `terraform fmt` lays out a run of attributes. */
 function attrLines(attrs: Attr[], indent: string): string[] {
@@ -42,16 +38,13 @@ function joinBlocks(blocks: string[][]): string[] {
 
 function header(spec: TableSpec, resourceId: string): string[] {
   const lines = [
-    `# dynamodb-table-iac: Terraform for DynamoDB table ${q(spec.tableName)}`,
+    `# dynamodb-table-iac: Terraform for DynamoDB table ${quoteForComment(spec.tableName)}`,
     `# Source: ${sourceDescription(spec)}`,
     '#',
     '# Not emitted (configure these yourself if the live table uses them):',
     ...NOT_EMITTED.map((item) => `#   - ${item}`)
   ];
-  const notes = [...spec.notes];
-  if (spec.homeRegion === undefined) {
-    notes.unshift(`${REGION_UNKNOWN_PREFIX}, so no provider region is emitted; add one before applying.`);
-  }
+  const notes = headerNotes(spec, {regionUnknown: ', so no provider region is emitted; add one before applying.'});
   if (notes.length > 0) {
     lines.push('#', '# Notes:', ...notes.map((note) => `#   - ${note}`));
   }
@@ -146,14 +139,14 @@ function sseBlock(spec: TableSpec, indent: string): string[][] {
 }
 
 /** The replica block has no per-replica capacity/class arguments; say what was on the live replica. */
-function replicaOverrideNote(r: ReplicaSpec): string | undefined {
+function replicaOverrideNote(spec: TableSpec, r: ReplicaSpec): string | undefined {
   const parts: string[] = [];
-  if (r.tableClass) parts.push(`table class ${r.tableClass}`);
+  if (r.tableClass !== undefined && r.tableClass !== (spec.tableClass ?? 'STANDARD')) parts.push(`table class ${r.tableClass}`);
   if (r.readCapacity !== undefined) parts.push(`read capacity ${r.readCapacity}`);
   if (r.maxRead !== undefined) parts.push(`on-demand max read ${r.maxRead}`);
   for (const g of r.gsiOverrides) {
-    if (g.readCapacity !== undefined) parts.push(`index ${q(g.name)} read capacity ${g.readCapacity}`);
-    if (g.maxRead !== undefined) parts.push(`index ${q(g.name)} on-demand max read ${g.maxRead}`);
+    if (g.readCapacity !== undefined) parts.push(`index ${quoteForComment(g.name)} read capacity ${g.readCapacity}`);
+    if (g.maxRead !== undefined) parts.push(`index ${quoteForComment(g.name)} on-demand max read ${g.maxRead}`);
   }
   if (parts.length === 0) return undefined;
   return `# NOT EMITTED: replica ${r.region} overrides — ${parts.join(', ')} (the replica block has no such arguments).`;
@@ -170,7 +163,7 @@ function replicaBlocks(spec: TableSpec, indent: string): string[][] {
   ];
   spec.replicas.forEach((r, i) => {
     const attrs: Attr[] = [['region_name', hclString(r.region)]];
-    if (spec.consistency === 'STRONG') attrs.push(['consistency_mode', hclString('STRONG')]);
+    attrs.push(['consistency_mode', hclString(spec.consistency)]);
     const body = attrLines(attrs, inner);
     if (r.kmsKeyId) {
       body.push(
@@ -179,7 +172,7 @@ function replicaBlocks(spec: TableSpec, indent: string): string[][] {
       );
     }
     const lead = i === 0 ? [...preamble] : [];
-    const note = replicaOverrideNote(r);
+    const note = replicaOverrideNote(spec, r);
     if (note) lead.push(`${indent}${note}`);
     blocks.push([...lead, ...block('replica', body, indent)]);
   });
@@ -203,14 +196,14 @@ function lifecycleBlock(spec: TableSpec, indent: string): string[][] {
 function vectorComment(indexes: VectorIndexSpec[], indent: string): string[][] {
   if (indexes.length === 0) return [];
   const lines = [
-    `${indent}# NOT EMITTED: the Terraform AWS provider (${PROVIDER_MAJOR_FOR_VECTORS}) has no DynamoDB vector index support.`
+    `${indent}# NOT EMITTED: the Terraform AWS provider (${PROVIDER_VERSION_CHECKED_FOR_VECTORS}) has no DynamoDB vector index support.`
   ];
   for (const v of indexes) {
     lines.push(
-      `${indent}# Vector index ${q(v.name)}: vector attribute ${q(v.attribute)}, ${v.dimensions} dimensions, ${v.distanceFunction} distance, projection ${v.projection.type}`
+      `${indent}# Vector index ${quoteForComment(v.name)}: vector attribute ${quoteForComment(v.attribute)}, ${v.dimensions} dimensions, ${v.distanceFunction} distance, projection ${v.projection.type}`
     );
     if (v.searchSchema.length > 0) {
-      lines.push(`${indent}#   search schema: ${v.searchSchema.map((el) => `${q(el.name)} ${el.type}`).join(', ')}`);
+      lines.push(`${indent}#   search schema: ${v.searchSchema.map((el) => `${quoteForComment(el.name)} ${el.type}`).join(', ')}`);
     }
   }
   return [lines];
@@ -218,10 +211,7 @@ function vectorComment(indexes: VectorIndexSpec[], indent: string): string[][] {
 
 export function renderTerraform(spec: TableSpec): string {
   const resourceId = terraformId(spec.tableName);
-  // EVENTUAL global tables replicate over the stream, so one is required; a
-  // STRONG table needs none and keeps whatever it has live.
-  const streamView =
-    spec.replicas.length > 0 && spec.consistency === 'EVENTUAL' ? 'NEW_AND_OLD_IMAGES' : spec.stream;
+  const streamView = effectiveStreamView(spec);
   const indent = '  ';
 
   const resourceBody = joinBlocks([

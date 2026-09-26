@@ -20,7 +20,7 @@ import {execFileSync} from 'node:child_process';
 import {copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {parse as parseYaml} from 'yaml';
-import {applyCdkDivergences, canonicalGlobalTableProperties} from '../tests/tools/compare.ts';
+import {applyCdkDivergences, canonicalGlobalTableProperties, stableJson} from '../tests/tools/compare.ts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const CDK_GOLDENS = join(ROOT, 'tests', 'golden', 'cdk');
@@ -55,10 +55,6 @@ for (const name of names) copyFileSync(join(CDK_GOLDENS, `${name}.ts`), join(SRC
 execFileSync(join(VALIDATE, 'node_modules', '.bin', 'tsc'), ['-p', join(VALIDATE, 'tsconfig.json')], {stdio: 'inherit'});
 console.log(`tsc: ${names.length} goldens compile (strict, noUnusedLocals)`);
 
-function stable(v: unknown): string {
-  return JSON.stringify(v, null, 2);
-}
-
 let failed = 0;
 for (const name of names) {
   const failures: string[] = [];
@@ -85,8 +81,8 @@ for (const name of names) {
       if (d.applied && !stated) failures.push(`divergence applied but not stated in the header: ${d.headerSentence}`);
       if (!d.applied && stated) failures.push(`header states a divergence that did not occur: ${d.headerSentence}`);
     }
-    const left = stable(canonicalGlobalTableProperties(cdk));
-    const right = stable(canonicalGlobalTableProperties(cfnResource.Properties));
+    const left = stableJson(canonicalGlobalTableProperties(cdk));
+    const right = stableJson(canonicalGlobalTableProperties(cfnResource.Properties));
     if (left !== right) failures.push(`Properties differ from the CloudFormation golden\n--- cdk synth (canonical)\n${left}\n--- cloudformation golden (canonical)\n${right}`);
   }
   if (failures.length === 0) console.log(`${name}: ok`);

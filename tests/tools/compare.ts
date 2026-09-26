@@ -17,6 +17,7 @@ export type RawThroughput = {ReadCapacityUnits?: number; WriteCapacityUnits?: nu
 export type RawOnDemand = {MaxReadRequestUnits?: number; MaxWriteRequestUnits?: number};
 export type RawGsi = {
   IndexName: string;
+  IndexStatus?: string;
   KeySchema: RawKey[];
   Projection: RawProjection;
   ProvisionedThroughput?: RawThroughput;
@@ -58,7 +59,7 @@ export type RawTtl = {TimeToLiveStatus?: string; AttributeName?: string} | undef
 const REGION = /^[a-z]{2,4}(-[a-z]+)+-\d+$/;
 const ARN = /^arn:[^:]+:dynamodb:([^:]*):(\d*):table\//;
 
-/** D1 restated: the ARN's region when it is a real one, else the recorded `input.region`, else none. */
+/** The home-region rule restated: the ARN's region when it is a real one, else the recorded `input.region`, else none. */
 export function deriveHome(table: RawTable, recordedRegion: string | undefined): string | undefined {
   const arnRegion = table.TableArn === undefined ? undefined : ARN.exec(table.TableArn)?.[1];
   if (arnRegion !== undefined && REGION.test(arnRegion)) return arnRegion;
@@ -86,15 +87,25 @@ export function billingMode(table: RawTable): 'PROVISIONED' | 'PAY_PER_REQUEST' 
   return table.BillingModeSummary?.BillingMode ?? 'PROVISIONED';
 }
 
+/** The GSIs an export keeps: a DELETING index is on its way out and is left out. */
+export function keptGsis(table: RawTable): RawGsi[] {
+  return (table.GlobalSecondaryIndexes ?? []).filter((g) => g.IndexStatus !== 'DELETING');
+}
+
 export function keyAttributeNames(table: RawTable): string[] {
   const names: string[] = [];
   const add = (k: RawKey) => {
     if (!names.includes(k.AttributeName)) names.push(k.AttributeName);
   };
   table.KeySchema.forEach(add);
-  for (const g of table.GlobalSecondaryIndexes ?? []) g.KeySchema.forEach(add);
+  for (const g of keptGsis(table)) g.KeySchema.forEach(add);
   for (const l of table.LocalSecondaryIndexes ?? []) l.KeySchema.forEach(add);
   return names;
+}
+
+/** Deterministic JSON (keys sorted at every depth) for byte comparison and diffs. */
+export function stableJson(v: unknown): string {
+  return JSON.stringify(sortKeysDeep(v), null, 2);
 }
 
 // --- Terraform: the projection of `terraform show -json` planned values we assert on ---
@@ -120,7 +131,7 @@ function odt(v: RawOnDemand | undefined): Json | undefined {
   return Object.keys(out).length === 0 ? undefined : [out];
 }
 
-export function terraformExpectation(table: RawTable, recordedRegion: string | undefined): TerraformExpectation {
+export function terraformExpectation(table: RawTable, recordedRegion: string | undefined, ttl: RawTtl): TerraformExpectation {
   const home = deriveHome(table, recordedRegion);
   const mode = billingMode(table);
   const replicas = keptReplicas(table, home);
@@ -142,7 +153,7 @@ export function terraformExpectation(table: RawTable, recordedRegion: string | u
     // `attribute` is a set: the plan lists it sorted by name.
     attribute: sortBy(keyAttributeNames(table), (n) => n).map((n) => ({name: n, type: types.get(n) ?? null})),
     // Absent (measured `null`) when the table has no GSI, where an empty LSI/replica set is `[]`.
-    global_secondary_index: (table.GlobalSecondaryIndexes ?? []).length === 0 ? undefined : sortBy(table.GlobalSecondaryIndexes ?? [], (g) => g.IndexName).map((g) => {
+    global_secondary_index: keptGsis(table).length === 0 ? undefined : sortBy(keptGsis(table), (g) => g.IndexName).map((g) => {
       const gsi: {[key: string]: Json} = {
         name: g.IndexName,
         // Order is the wire order — a multi-attribute key's HASH/RANGE sequence is meaning.
@@ -179,6 +190,11 @@ export function terraformExpectation(table: RawTable, recordedRegion: string | u
       point_in_time_recovery: false,
       propagate_tags: false
     })),
+    // Present only when TTL is on; a disabled or unknown TTL writes no block and the plan reports it as computed.
+    ttl:
+      ttl?.TimeToLiveStatus === 'ENABLED' && ttl.AttributeName !== undefined
+        ? [{attribute_name: ttl.AttributeName, enabled: true}]
+        : undefined,
     // Absent when there is no witness: the plan reports the block as computed, not empty.
     global_table_witness:
       table.GlobalTableWitnesses === undefined || table.GlobalTableWitnesses.length === 0
@@ -310,7 +326,7 @@ export type CdkDivergence = {
 };
 
 /**
- * The two D2 accepted divergences, applied to the CDK side ONLY when present,
+ * The two accepted TableV2 divergences, applied to the CDK side ONLY when present,
  * each reported so the caller can require the CDK file's header to state it.
  *  - deletion protection: `configureReplicaTable` falls back to the table's
  *    `deletionProtection` for every replica.

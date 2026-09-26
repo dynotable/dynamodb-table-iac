@@ -86,8 +86,21 @@ c["OnDemandThroughput"] = {"MaxReadRequestUnits": 2000, "MaxWriteRequestUnits": 
 write("c-extras-aws", c)
 
 # (d) vector index with a HASH + INLINE_FILTER search schema, plus a second
-# index still CREATING that lacks Dimensions/DistanceFunction/Projection.
+# index still CREATING that lacks Dimensions/DistanceFunction/Projection, a
+# third index DELETING, and a DELETING GSI — both left out with a note.
 d = base("articles", "us-east-1", [HASH("pk"), RANGE("sk")], [S("pk"), S("sk"), S("tenant"), S("category")])
+d["GlobalSecondaryIndexes"] = [
+    {
+        "IndexName": "old-by-category",
+        "KeySchema": [HASH("category")],
+        "Projection": {"ProjectionType": "KEYS_ONLY"},
+        "IndexStatus": "DELETING",
+        "ProvisionedThroughput": {"NumberOfDecreasesToday": 0, "ReadCapacityUnits": 0, "WriteCapacityUnits": 0},
+        "IndexSizeBytes": 0,
+        "ItemCount": 0,
+        "IndexArn": arn("us-east-1", "articles") + "/index/old-by-category",
+    }
+]
 d["VectorIndexes"] = [
     {
         "IndexName": "by-embedding",
@@ -110,6 +123,18 @@ d["VectorIndexes"] = [
         "VectorAttribute": {"AttributeName": "titleEmbedding"},
         "IndexStatus": "CREATING",
         "Backfilling": True,
+    },
+    {
+        "IndexName": "old-embedding",
+        "VectorAttribute": {"AttributeName": "oldEmbedding"},
+        "Dimensions": 256,
+        "DistanceFunction": "EUCLIDEAN",
+        "Projection": {"ProjectionType": "ALL"},
+        "IndexStatus": "DELETING",
+        "Backfilling": False,
+        "IndexSizeBytes": 0,
+        "ItemCount": 0,
+        "IndexArn": arn("us-east-1", "articles") + "/index/old-embedding",
     },
 ]
 write("d-vector", d)
@@ -226,9 +251,11 @@ h1["Replicas"] = [
 write("h1-eventual-ondemand", h1, ttl={"TimeToLiveStatus": "DISABLED"})
 
 # h2: EVENTUAL provisioned with deletion protection, per-replica read override
-# and a GSI read override.
+# and a GSI read override; the home table is STANDARD_INFREQUENT_ACCESS while
+# the replica is STANDARD (a per-replica class that must not be inherited).
 h2 = base("ledger", "us-east-1", [HASH("pk"), RANGE("sk")], [S("pk"), S("sk"), S("account")], on_demand=False, rcu=20, wcu=10)
 h2["DeletionProtectionEnabled"] = True
+h2["TableClassSummary"] = {"TableClass": "STANDARD_INFREQUENT_ACCESS", "LastUpdateDateTime": ISO}
 h2["GlobalSecondaryIndexes"] = [
     {
         "IndexName": "by-account",
@@ -249,6 +276,7 @@ h2["Replicas"] = [
     replica(
         "eu-west-1",
         _name="ledger",
+        ReplicaTableClassSummary={"TableClass": "STANDARD"},
         ProvisionedThroughputOverride={"ReadCapacityUnits": 7},
         GlobalSecondaryIndexes=[{"IndexName": "by-account", "ProvisionedThroughputOverride": {"ReadCapacityUnits": 3}}],
     )

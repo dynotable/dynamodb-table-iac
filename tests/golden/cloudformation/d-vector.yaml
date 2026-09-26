@@ -14,7 +14,9 @@ Metadata:
       - "the KMS key ARN of an SSE-encrypted table (DescribeTable cannot tell an AWS-managed key from a customer-managed one; the AWS-managed key is emitted and the live ARN is left in a comment)"
       - "settings of non-home replicas that DynamoDB never synchronizes (their deletion protection, PITR and tags are only visible from their own region)"
     Notes:
+      - "Global secondary index \"old-by-category\" is DELETING and was left out."
       - "Vector index \"by-title-embedding\" is still being created (its definition is incomplete) and was left out."
+      - "Vector index \"old-embedding\" is DELETING and was left out."
       - "TTL: not provided — include the output of `aws dynamodb describe-time-to-live` to add it."
     Adopt: "To adopt the live table instead of creating a new one, bring it into a stack with resource import (aws cloudformation create-stack --import-existing-resources, or an IMPORT change set); DeletionPolicy Retain is set, as import requires."
 Resources:

@@ -80,5 +80,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: cfn-lint --non-zero-exit-code error tests/golden/cloudformation/*
-      - run: node scripts/render-cfn-json.mjs "$RUNNER_TEMP/cfn-json"
+      - run: node scripts/render-cfn-json.ts "$RUNNER_TEMP/cfn-json"
       - run: python3 scripts/check-yaml-11.py tests/golden/cloudformation "$RUNNER_TEMP/cfn-json"

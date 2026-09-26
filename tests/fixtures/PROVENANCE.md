@@ -23,11 +23,11 @@ Two sources:
 | `b-hash-only` | Local capture | provisioned, hash key only | `us-east-1` |
 | `c-stream` | Local capture | stream `NEW_AND_OLD_IMAGES` | `us-east-1` |
 | `c-extras-aws` | authored | SSE `KMS` with key ARN, `STANDARD_INFREQUENT_ACCESS`, `OnDemandThroughput` with write side `-1`, `WarmThroughput` present | from `TableArn` (`eu-west-1`) |
-| `d-vector` | authored | vector index with `HASH` + `INLINE_FILTER` search schema; a second index `CREATING` without `Dimensions`/`DistanceFunction`/`Projection` | from `TableArn` |
+| `d-vector` | authored | vector index with `HASH` + `INLINE_FILTER` search schema; a second index `CREATING` without `Dimensions`/`DistanceFunction`/`Projection`; a third vector index and a GSI both `DELETING` (left out with a note) | from `TableArn` |
 | `e-multikey-gsi` | authored | GSI with two `HASH` + two `RANGE` keys | from `TableArn` |
 | `f-hostile` | authored | table name `yes`; attribute names with `"`, `${`, `%{`, `\`, newline, `*/`, U+2028, U+0085, a C1 char, `__proto__`, `constructor`, and two valid-code payloads | from `TableArn` |
 | `h1-eventual-ondemand` | authored | EVENTUAL on-demand global table: one replica with table-class + on-demand-read + GSI overrides, one `UPDATING`, one `DELETING`, one in another account | from `TableArn` (`us-east-1`) |
-| `h2-eventual-provisioned` | authored | EVENTUAL provisioned global table, deletion protection, per-replica read override + GSI read override | from `TableArn` |
+| `h2-eventual-provisioned` | authored | EVENTUAL provisioned global table, deletion protection, per-replica read override + GSI read override; home table `STANDARD_INFREQUENT_ACCESS` with a `STANDARD` replica (a per-replica class that must not be inherited) | from `TableArn` |
 | `h3-strong-cross-continent` | authored | STRONG, three regions across continents (CDK refuses) | from `TableArn` |
 | `h4-strong-witness` | authored | STRONG, home + one replica + a witness inside one CDK region group | from `TableArn` |
 | `g-real-arn` | authored | refusal: a real `TableArn` region with a DIFFERENT `input.region` | `us-east-1` (mismatch) |
@@ -41,6 +41,9 @@ Two sources:
 | `g-range-first` | authored | refusal: `RANGE` before `HASH` | — |
 | `g-lsi-foreign-hash` | authored | refusal: LSI whose `HASH` differs from the table's | — |
 | `g-stream-without-view-type` | authored | refusal: stream enabled without a view type | — |
+
+The machine-readable form of the golden → fixture + `input.region` mapping is
+`goldens.json` beside this file; the emitter suites and the validators read it.
 
 **Region-less golden (i)**: `b-provisioned` emitted WITHOUT `input.region` — its
 `ddblocal` ARN yields no home region, so Terraform declares no provider region,

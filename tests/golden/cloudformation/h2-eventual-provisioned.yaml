@@ -63,6 +63,7 @@ Resources:
       Replicas:
         - Region: us-east-1
           DeletionProtectionEnabled: true
+          TableClass: STANDARD_INFREQUENT_ACCESS
           ReadProvisionedThroughputSettings:
             ReadCapacityUnits: 20
           GlobalSecondaryIndexes:
@@ -70,6 +71,7 @@ Resources:
               ReadProvisionedThroughputSettings:
                 ReadCapacityUnits: 8
         - Region: eu-west-1
+          TableClass: STANDARD
           ReadProvisionedThroughputSettings:
             ReadCapacityUnits: 7
           GlobalSecondaryIndexes:

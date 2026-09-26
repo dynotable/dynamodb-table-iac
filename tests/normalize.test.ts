@@ -146,13 +146,36 @@ describe('normalize — global tables', () => {
     expect(s.gsis[0]?.max).toEqual({});
   });
 
-  it('h2: provisioned replica read override and GSI read override', () => {
+  it('h2: provisioned replica read override, GSI read override, and a STANDARD replica under an infrequent-access home', () => {
     const s = spec('h2-eventual-provisioned');
     expect(s.billing).toEqual({mode: 'PROVISIONED', throughput: {read: 20, write: 10}});
     expect(s.deletionProtection).toBe(true);
+    expect(s.tableClass).toBe('STANDARD_INFREQUENT_ACCESS');
     expect(s.replicas).toEqual([
-      {region: 'eu-west-1', status: 'ACTIVE', readCapacity: 7, gsiOverrides: [{name: 'by-account', readCapacity: 3}]}
+      {
+        region: 'eu-west-1',
+        status: 'ACTIVE',
+        tableClass: 'STANDARD',
+        readCapacity: 7,
+        gsiOverrides: [{name: 'by-account', readCapacity: 3}]
+      }
     ]);
+  });
+
+  it('refuses more than one witness region', () => {
+    const table = fixtureTable('h4-strong-witness');
+    table.GlobalTableWitnesses = [...(table.GlobalTableWitnesses ?? []), {RegionName: 'us-east-2', WitnessStatus: 'ACTIVE'}];
+    const result = normalize({table});
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('DynamoDB allows one witness region and this table lists 2 (us-west-2, us-east-2).');
+  });
+
+  it('refuses a MultiRegionConsistency outside EVENTUAL | STRONG', () => {
+    const table = fixtureTable('h4-strong-witness');
+    table.MultiRegionConsistency = 'BOUNDED';
+    const result = normalize({table});
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('MultiRegionConsistency "BOUNDED" is not EVENTUAL or STRONG.');
   });
 
   it('h3: STRONG across continents is a valid spec (the CDK emitter alone refuses it)', () => {
@@ -181,6 +204,38 @@ describe('normalize — global tables', () => {
     table.Replicas = [];
     const result = normalize({table, region: 'us-east-1'});
     expect(result.ok && result.spec.replicas).toEqual([]);
+  });
+});
+
+describe('normalize — indexes being deleted', () => {
+  it('d-vector: a DELETING GSI and a DELETING vector index are left out, each with a note', () => {
+    const s = spec('d-vector');
+    expect(s.gsis).toEqual([]);
+    expect(s.vectorIndexes.map((v) => v.name)).toEqual(['by-embedding']);
+    expect(s.notes).toEqual([
+      'Global secondary index "old-by-category" is DELETING and was left out.',
+      'Vector index "by-title-embedding" is still being created (its definition is incomplete) and was left out.',
+      'Vector index "old-embedding" is DELETING and was left out.',
+      'TTL: not provided — include the output of `aws dynamodb describe-time-to-live` to add it.'
+    ]);
+  });
+});
+
+describe('normalize — table class', () => {
+  it('refuses a table class outside STANDARD | STANDARD_INFREQUENT_ACCESS', () => {
+    const table = fixtureTable('c-extras-aws');
+    table.TableClassSummary = {TableClass: 'GLACIER'};
+    const result = normalize({table});
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('The table class "GLACIER" is not STANDARD or STANDARD_INFREQUENT_ACCESS.');
+  });
+
+  it('refuses a replica table class outside the same set', () => {
+    const table = fixtureTable('h1-eventual-ondemand');
+    (table.Replicas ?? [])[0]!.ReplicaTableClassSummary = {TableClass: 'GLACIER'};
+    const result = normalize({table});
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('The replica in eu-west-1 has table class "GLACIER" — expected STANDARD or STANDARD_INFREQUENT_ACCESS.');
   });
 });
 

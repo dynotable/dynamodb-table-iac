@@ -19,7 +19,7 @@ const YAML_WORDS = new Set([
   'y', 'n', 'yes', 'no', 'on', 'off', 'true', 'false', 'null', '~'
 ]);
 
-export function q(value: string): Quoted {
+export function quoted(value: string): Quoted {
   return new Quoted(value);
 }
 

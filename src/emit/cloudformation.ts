@@ -3,8 +3,9 @@ import {normalize, referencedAttributes} from '../normalize';
 import type {GsiSpec, KeySpec, ProjectionSpec, ReplicaSpec, TableSpec, VectorIndexSpec} from '../normalize';
 import {NOT_EMITTED} from '../not-emitted';
 import type {EmitResult, TableDefinitionInput} from '../types';
-import {ADOPTION_HINT_CFN, REGION_UNKNOWN_PREFIX, sourceDescription} from './common';
-import {q, renderYaml, toJsonValue} from './yaml';
+import {quoteForComment} from '../escape';
+import {ADOPTION_HINT_CFN, effectiveStreamView, headerNotes, sourceDescription} from './common';
+import {quoted, renderYaml, toJsonValue} from './yaml';
 import type {YamlMap, YamlNode} from './yaml';
 
 // CloudFormation `AWS::DynamoDB::GlobalTable` — always, single-region tables
@@ -24,7 +25,6 @@ import type {YamlMap, YamlNode} from './yaml';
 // on the table and per GSI and is deliberately never emitted (NOT_EMITTED).
 
 const TARGET_UTILIZATION = 70;
-const DESCRIPTION_LIMIT = 1024;
 
 export type CloudFormationSyntax = 'yaml' | 'json';
 
@@ -33,12 +33,12 @@ export interface CloudFormationOptions {
 }
 
 function keySchema(keys: KeySpec[]): YamlNode[] {
-  return keys.map((k) => ({AttributeName: q(k.name), KeyType: k.type}));
+  return keys.map((k) => ({AttributeName: quoted(k.name), KeyType: k.type}));
 }
 
 function projection(p: ProjectionSpec): YamlMap {
   const node: YamlMap = {ProjectionType: p.type};
-  if (p.type === 'INCLUDE') node.NonKeyAttributes = p.nonKeyAttributes.map(q);
+  if (p.type === 'INCLUDE') node.NonKeyAttributes = p.nonKeyAttributes.map(quoted);
   return node;
 }
 
@@ -52,9 +52,15 @@ function writeAutoScaling(units: number): YamlMap {
   };
 }
 
+/** A PROVISIONED table's GSI always carries throughput (normalize guarantees it); anything else is a bug. */
+function provisionedRead(g: GsiSpec): number {
+  if (g.throughput === undefined) throw new Error(`GSI ${JSON.stringify(g.name)} has no provisioned throughput on a PROVISIONED table`);
+  return g.throughput.read;
+}
+
 function gsi(spec: TableSpec, g: GsiSpec): YamlMap {
-  const node: YamlMap = {IndexName: q(g.name), KeySchema: keySchema(g.keySchema), Projection: projection(g.projection)};
-  if (spec.billing.mode === 'PROVISIONED' && g.throughput) {
+  const node: YamlMap = {IndexName: quoted(g.name), KeySchema: keySchema(g.keySchema), Projection: projection(g.projection)};
+  if (g.throughput) {
     node.WriteProvisionedThroughputSettings = writeAutoScaling(g.throughput.write);
   } else if (g.max?.maxWrite !== undefined) {
     node.WriteOnDemandThroughputSettings = {MaxWriteRequestUnits: g.max.maxWrite};
@@ -65,24 +71,24 @@ function gsi(spec: TableSpec, g: GsiSpec): YamlMap {
 /** The `AttributeDefinitions` list, incl. vector search-schema attributes — shared with the CDK L1 override. */
 export function cfnAttributeDefinitions(spec: TableSpec): YamlNode[] {
   return referencedAttributes(spec, {vectorIndexes: true}).map((a) => ({
-    AttributeName: q(a.name),
+    AttributeName: quoted(a.name),
     // Quoted: a bare `N` is a YAML 1.1 boolean word (y|Y|n|N), and the CloudFormation
     // parser is YAML 1.1.
-    AttributeType: q(a.type)
+    AttributeType: quoted(a.type)
   }));
 }
 
 /** One `VectorIndexes[]` entry — shared with the CDK L1 override. */
 export function cfnVectorIndex(v: VectorIndexSpec): YamlMap {
   const node: YamlMap = {
-    IndexName: q(v.name),
-    VectorAttribute: {AttributeName: q(v.attribute)},
+    IndexName: quoted(v.name),
+    VectorAttribute: {AttributeName: quoted(v.attribute)},
     Dimensions: v.dimensions,
     DistanceFunction: v.distanceFunction,
     Projection: projection(v.projection)
   };
   if (v.searchSchema.length > 0) {
-    node.SearchSchema = v.searchSchema.map((el) => ({AttributeName: q(el.name), SearchSchemaElementType: el.type}));
+    node.SearchSchema = v.searchSchema.map((el) => ({AttributeName: quoted(el.name), SearchSchemaElementType: el.type}));
   }
   return node;
 }
@@ -95,18 +101,21 @@ export function cfnVectorIndex(v: VectorIndexSpec): YamlMap {
 function replica(spec: TableSpec, region: YamlNode, override: ReplicaSpec | undefined): YamlMap {
   const node: YamlMap = {Region: region};
   if (override === undefined && spec.deletionProtection) node.DeletionProtectionEnabled = true;
-  const tableClass = override?.tableClass ?? spec.tableClass;
-  if (tableClass) node.TableClass = tableClass;
+  // Written when infrequent-access, and when a replica is STANDARD under an
+  // infrequent-access home — the one case a reader would infer wrongly.
+  const homeClass = spec.tableClass ?? 'STANDARD';
+  const tableClass = override?.tableClass ?? homeClass;
+  if (tableClass === 'STANDARD_INFREQUENT_ACCESS' || tableClass !== homeClass) node.TableClass = tableClass;
 
   if (spec.billing.mode === 'PROVISIONED') {
     node.ReadProvisionedThroughputSettings = {
       ReadCapacityUnits: override?.readCapacity ?? spec.billing.throughput.read
     };
     const indexes = spec.gsis.map((g) => ({
-      IndexName: q(g.name),
+      IndexName: quoted(g.name),
       ReadProvisionedThroughputSettings: {
         ReadCapacityUnits:
-          override?.gsiOverrides.find((o) => o.name === g.name)?.readCapacity ?? g.throughput?.read ?? 0
+          override?.gsiOverrides.find((o) => o.name === g.name)?.readCapacity ?? provisionedRead(g)
       }
     }));
     if (indexes.length > 0) node.GlobalSecondaryIndexes = indexes;
@@ -117,7 +126,7 @@ function replica(spec: TableSpec, region: YamlNode, override: ReplicaSpec | unde
     for (const g of spec.gsis) {
       const gsiMax = override?.gsiOverrides.find((o) => o.name === g.name)?.maxRead ?? g.max?.maxRead;
       if (gsiMax !== undefined) {
-        indexes.push({IndexName: q(g.name), ReadOnDemandThroughputSettings: {MaxReadRequestUnits: gsiMax}});
+        indexes.push({IndexName: quoted(g.name), ReadOnDemandThroughputSettings: {MaxReadRequestUnits: gsiMax}});
       }
     }
     if (indexes.length > 0) node.GlobalSecondaryIndexes = indexes;
@@ -127,7 +136,7 @@ function replica(spec: TableSpec, region: YamlNode, override: ReplicaSpec | unde
 
 function properties(spec: TableSpec): YamlMap {
   const props: YamlMap = {
-    TableName: q(spec.tableName),
+    TableName: quoted(spec.tableName),
     BillingMode: spec.billing.mode,
     AttributeDefinitions: cfnAttributeDefinitions(spec),
     KeySchema: keySchema(spec.keySchema)
@@ -135,19 +144,16 @@ function properties(spec: TableSpec): YamlMap {
   if (spec.gsis.length > 0) props.GlobalSecondaryIndexes = spec.gsis.map((g) => gsi(spec, g));
   if (spec.lsis.length > 0) {
     props.LocalSecondaryIndexes = spec.lsis.map((l) => ({
-      IndexName: q(l.name),
+      IndexName: quoted(l.name),
       KeySchema: keySchema(l.keySchema),
       Projection: projection(l.projection)
     }));
   }
   if (spec.vectorIndexes.length > 0) props.VectorIndexes = spec.vectorIndexes.map(cfnVectorIndex);
   if (spec.ttl.kind === 'enabled') {
-    props.TimeToLiveSpecification = {AttributeName: q(spec.ttl.attribute), Enabled: true};
+    props.TimeToLiveSpecification = {AttributeName: quoted(spec.ttl.attribute), Enabled: true};
   }
-  // EVENTUAL replication rides the stream, so more than one replica needs one;
-  // a STRONG table needs none and keeps whatever it has live.
-  const streamView =
-    spec.replicas.length > 0 && spec.consistency === 'EVENTUAL' ? 'NEW_AND_OLD_IMAGES' : spec.stream;
+  const streamView = effectiveStreamView(spec);
   if (streamView) props.StreamSpecification = {StreamViewType: streamView};
   if (spec.sse) props.SSESpecification = {SSEEnabled: true, SSEType: 'KMS'};
   if (spec.billing.mode === 'PROVISIONED') {
@@ -158,38 +164,30 @@ function properties(spec: TableSpec): YamlMap {
   if (spec.consistency === 'STRONG') props.MultiRegionConsistency = 'STRONG';
   if (spec.witnesses.length > 0) props.GlobalTableWitnesses = spec.witnesses.map((w) => ({Region: w}));
 
-  const home: YamlNode = spec.homeRegion ?? {Ref: q('AWS::Region')};
+  const home: YamlNode = spec.homeRegion ?? {Ref: quoted('AWS::Region')};
   props.Replicas = [replica(spec, home, undefined), ...spec.replicas.map((r) => replica(spec, r.region, r))];
   return props;
 }
 
-function notesFor(spec: TableSpec): string[] {
-  const notes = [...spec.notes];
-  if (spec.homeRegion === undefined) {
-    notes.unshift(`${REGION_UNKNOWN_PREFIX}; the home replica is the stack's own region (Ref AWS::Region).`);
-  }
-  if (spec.billing.mode === 'PROVISIONED') {
-    notes.push(
-      'Provisioned write capacity is emitted as write auto-scaling with min = max = the current WCU (AWS::DynamoDB::GlobalTable accepts no fixed write capacity); the live scaling policy is not part of DescribeTable.'
-    );
-  }
-  return notes;
-}
+const PROVISIONED_NOTE =
+  'Provisioned write capacity is emitted as write auto-scaling with min = max = the current WCU (AWS::DynamoDB::GlobalTable accepts no fixed write capacity); the live scaling policy is not part of DescribeTable.';
 
 export function buildCloudFormationTemplate(spec: TableSpec): {template: YamlMap; logicalId: string} {
   const logicalId = pascalId(spec.tableName);
   const description = `DynamoDB table ${spec.tableName}, generated by dynamodb-table-iac from describe-table output`;
-  if (description.length > DESCRIPTION_LIMIT) throw new Error('CloudFormation Description exceeds 1024 bytes');
   const metadata: YamlMap = {
-    Source: q(sourceDescription(spec)),
-    NotEmitted: NOT_EMITTED.map(q)
+    Source: quoted(sourceDescription(spec)),
+    NotEmitted: NOT_EMITTED.map(quoted)
   };
-  const notes = notesFor(spec);
-  if (notes.length > 0) metadata.Notes = notes.map(q);
-  metadata.Adopt = q(ADOPTION_HINT_CFN);
+  const notes = headerNotes(spec, {
+    regionUnknown: "; the home replica is the stack's own region (Ref AWS::Region).",
+    provisioned: PROVISIONED_NOTE
+  });
+  if (notes.length > 0) metadata.Notes = notes.map(quoted);
+  metadata.Adopt = quoted(ADOPTION_HINT_CFN);
   const template: YamlMap = {
-    AWSTemplateFormatVersion: q('2010-09-09'),
-    Description: q(description),
+    AWSTemplateFormatVersion: quoted('2010-09-09'),
+    Description: quoted(description),
     Metadata: {DynoTable: metadata},
     Resources: {
       [logicalId]: {
@@ -207,7 +205,7 @@ export function renderCloudFormation(spec: TableSpec, opts: CloudFormationOption
   const {template, logicalId} = buildCloudFormationTemplate(spec);
   if (opts.syntax === 'json') return JSON.stringify(toJsonValue(template), null, 2) + '\n';
   const header = [
-    `# dynamodb-table-iac: CloudFormation for DynamoDB table ${JSON.stringify(spec.tableName)}`,
+    `# dynamodb-table-iac: CloudFormation for DynamoDB table ${quoteForComment(spec.tableName)}`,
     `# Source: ${sourceDescription(spec)}`
   ];
   return header.join('\n') + '\n' + renderYaml(template, new Set([logicalId]));

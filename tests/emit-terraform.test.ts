@@ -59,9 +59,17 @@ describe('emitTerraform — invariants stated from the fixtures', () => {
 
 describe('emitTerraform — refusals pass through from normalize()', () => {
   it.each([
-    ['g-real-arn', {region: 'us-east-1'}, /ARN is in eu-west-1/],
+    ['g-real-arn', {region: 'us-east-1'}, /ARN is in eu-west-1 but the region given is us-east-1/],
+    ['g-replicas-without-region', {}, /Cannot identify the table's own region/],
     ['g-strong-with-deleting', {}, /DELETING on a strongly consistent global table/],
-    ['g-key-without-definition', {}, /no entry in AttributeDefinitions/]
+    ['g-no-summary-rcu0', {}, /Cannot determine the billing mode/],
+    ['g-provisioned-without-throughput', {}, /PROVISIONED but has no positive ReadCapacityUnits\/WriteCapacityUnits/],
+    ['g-invalid-table-name', {}, /is not a valid DynamoDB name/],
+    ['g-key-without-definition', {}, /has no entry in AttributeDefinitions/],
+    ['g-conflicting-definitions', {}, /declared twice with different types/],
+    ['g-range-first', {}, /lists a RANGE key before a HASH key/],
+    ['g-lsi-foreign-hash', {}, /must share the table's HASH key/],
+    ['g-stream-without-view-type', {}, /stream is enabled but StreamViewType is missing/]
   ] as const)('%s', (name, overrides, pattern) => {
     const result = emitTerraform(fixtureInput(name, overrides));
     expect(result.ok).toBe(false);

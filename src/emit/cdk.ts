@@ -5,13 +5,13 @@ import type {GsiSpec, KeySpec, LsiSpec, ProjectionSpec, ReplicaSpec, TableSpec} 
 import {NOT_EMITTED} from '../not-emitted';
 import type {EmitResult, TableDefinitionInput} from '../types';
 import {cfnAttributeDefinitions, cfnVectorIndex} from './cloudformation';
-import {REGION_UNKNOWN_PREFIX, sourceDescription} from './common';
+import {effectiveStreamView, headerNotes, sourceDescription} from './common';
 import {Quoted} from './yaml';
 import type {YamlNode} from './yaml';
 
 // AWS CDK v2 (TypeScript) — `TableV2`, which synthesizes the same
 // `AWS::DynamoDB::GlobalTable` the CloudFormation emitter writes, so the two
-// outputs can be compared resource for resource (Task 7's canonicalizer).
+// outputs can be compared resource for resource (scripts/validate-cdk.ts does).
 //
 // Verified against aws-cdk-lib 2.271.0 source (aws-dynamodb/lib/table-v2.ts,
 // billing.ts, capacity.ts, encryption.ts, 2026-09-26):
@@ -27,9 +27,10 @@ import type {YamlNode} from './yaml';
 //     `tableClass`, `globalSecondaryIndexOptions`, `deletionProtection`; an
 //     unset replica `readCapacity`/`tableClass`/`deletionProtection` falls
 //     back to the TABLE's (`configureReplicaTable`), which is why deletion
-//     protection lands on every replica (D2 accepted divergence #1).
+//     protection lands on every replica — an accepted divergence, stated in
+//     the generated file's header.
 //   - `renderStreamSpecification`: any replica forces NEW_AND_OLD_IMAGES when
-//     `dynamoStream` is unset — the STRONG-table divergence (#2).
+//     `dynamoStream` is unset — the other stated divergence.
 //   - `validateMrscConfiguration`: STRONG needs every region inside ONE set
 //     (`CDK_MRSC_REGION_SETS`, copied verbatim); the service allows more.
 //   - `TableEncryptionV2.awsManagedKey()` exists; `removalPolicy` defaults
@@ -49,10 +50,6 @@ const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const IND = '  ';
 
 type Ctx = {spec: TableSpec; used: Set<string>};
-
-function q(value: string): string {
-  return quoteForComment(value);
-}
 
 /**
  * An object-literal key. A quoted OR bare `__proto__` key in a literal sets the
@@ -150,7 +147,10 @@ function lsi(ctx: Ctx, l: LsiSpec, pad: string): string[] {
 function replica(ctx: Ctx, r: ReplicaSpec, pad: string): string[] {
   const provisioned = ctx.spec.billing.mode === 'PROVISIONED';
   const props: string[] = [`region: ${tsString(r.region)}`];
-  if (r.tableClass) props.push(`tableClass: ${use(ctx, 'TableClass')}.${r.tableClass}`);
+  // Only a class the L2 would not inherit from the table.
+  if (r.tableClass !== undefined && r.tableClass !== (ctx.spec.tableClass ?? 'STANDARD')) {
+    props.push(`tableClass: ${use(ctx, 'TableClass')}.${r.tableClass}`);
+  }
   if (provisioned && r.readCapacity !== undefined) props.push(`readCapacity: ${fixed(ctx, r.readCapacity)}`);
   if (!provisioned && r.maxRead !== undefined) props.push(`maxReadRequestUnits: ${r.maxRead}`);
   const gsiOptions: string[] = [];
@@ -175,11 +175,6 @@ function replica(ctx: Ctx, r: ReplicaSpec, pad: string): string[] {
   return lines;
 }
 
-/** The stream view the CloudFormation emitter writes: EVENTUAL replication rides a NEW_AND_OLD_IMAGES stream. */
-function streamView(spec: TableSpec): TableSpec['stream'] {
-  return spec.replicas.length > 0 && spec.consistency === 'EVENTUAL' ? 'NEW_AND_OLD_IMAGES' : spec.stream;
-}
-
 function tableProps(ctx: Ctx, pad: string): string[] {
   const {spec} = ctx;
   const lines = [`${pad}tableName: ${tsString(spec.tableName)},`, ...keyProps(ctx, spec.keySchema, pad)];
@@ -191,14 +186,14 @@ function tableProps(ctx: Ctx, pad: string): string[] {
     lines.push(`${pad}localSecondaryIndexes: [`, ...spec.lsis.flatMap((l) => lsi(ctx, l, pad + IND)), `${pad}],`);
   }
   if (spec.ttl.kind === 'enabled') lines.push(`${pad}timeToLiveAttribute: ${tsString(spec.ttl.attribute)},`);
-  const stream = streamView(spec);
+  const stream = effectiveStreamView(spec);
   if (stream) lines.push(`${pad}dynamoStream: ${use(ctx, 'StreamViewType')}.${stream},`);
   if (spec.sse) {
     const enc = use(ctx, 'TableEncryptionV2');
     if (spec.sse.liveKeyArn) {
       lines.push(
         `${pad}// If the live key is customer-managed (DescribeTable cannot tell), replace this with`,
-        `${pad}// ${enc}.customerManagedKey(Key.fromKeyArn(this, "TableKey", ${q(spec.sse.liveKeyArn)}))`,
+        `${pad}// ${enc}.customerManagedKey(Key.fromKeyArn(this, "TableKey", ${quoteForComment(spec.sse.liveKeyArn)}))`,
         `${pad}// with Key imported from "aws-cdk-lib/aws-kms".`
       );
     }
@@ -212,7 +207,7 @@ function tableProps(ctx: Ctx, pad: string): string[] {
   if (spec.consistency === 'STRONG') {
     lines.push(`${pad}multiRegionConsistency: ${use(ctx, 'MultiRegionConsistency')}.STRONG,`);
   }
-  if (spec.witnesses.length === 1) lines.push(`${pad}witnessRegion: ${tsString(spec.witnesses[0] as string)},`);
+  if (spec.witnesses.length > 0) lines.push(`${pad}witnessRegion: ${tsString(spec.witnesses[0] as string)},`);
   lines.push(`${pad}removalPolicy: RemovalPolicy.RETAIN,`);
   return lines;
 }
@@ -273,7 +268,7 @@ function divergences(spec: TableSpec): string[] {
       "TableV2 applies the table's deletion protection to every replica (the L2 has no per-replica off switch); the live replicas' own setting is not readable from the home region."
     );
   }
-  if (spec.consistency === 'STRONG' && streamView(spec) === undefined) {
+  if (spec.consistency === 'STRONG' && effectiveStreamView(spec) === undefined) {
     out.push('TableV2 attaches a NEW_AND_OLD_IMAGES stream to every global table; the live table has no stream.');
   }
   return out;
@@ -281,21 +276,17 @@ function divergences(spec: TableSpec): string[] {
 
 function header(spec: TableSpec): string[] {
   const lines = [
-    `// dynamodb-table-iac: AWS CDK (TypeScript, aws-cdk-lib ${CDK_LIB_VERSION}) for DynamoDB table ${q(spec.tableName)}`,
+    `// dynamodb-table-iac: AWS CDK (TypeScript, aws-cdk-lib ${CDK_LIB_VERSION}) for DynamoDB table ${quoteForComment(spec.tableName)}`,
     `// Source: ${sourceDescription(spec)}`,
     '//',
     '// Not emitted (configure these yourself if the live table uses them):',
     ...NOT_EMITTED.map((item) => `//   - ${item}`)
   ];
-  const notes = [...spec.notes];
-  if (spec.homeRegion === undefined) {
-    notes.unshift(`${REGION_UNKNOWN_PREFIX}; the stack has no env.region and deploys to the CLI's default region.`);
-  }
-  if (spec.billing.mode === 'PROVISIONED') {
-    notes.push(
+  const notes = headerNotes(spec, {
+    regionUnknown: "; the stack has no env.region and deploys to the CLI's default region.",
+    provisioned:
       'Provisioned write capacity is emitted as Capacity.autoscaled with min = max = the current WCU (TableV2 refuses a fixed write capacity); the live scaling policy is not part of DescribeTable.'
-    );
-  }
+  });
   if (notes.length > 0) lines.push('//', '// Notes:', ...notes.map((note) => `//   - ${note}`));
   const diverges = divergences(spec);
   if (diverges.length > 0) {
@@ -312,9 +303,6 @@ function header(spec: TableSpec): string[] {
 
 /** Why `TableV2` cannot take this spec, or `undefined`. Every reason names another target that can. */
 export function cdkRefusal(spec: TableSpec): string | undefined {
-  if (spec.witnesses.length > 1) {
-    return `AWS CDK TableV2 (aws-cdk-lib ${CDK_LIB_VERSION}) takes one witness region and this table has ${spec.witnesses.length}. Export it as Terraform or CloudFormation instead.`;
-  }
   if (spec.consistency !== 'STRONG' || spec.homeRegion === undefined) return undefined;
   const regions = [spec.homeRegion, ...spec.replicas.map((r) => r.region), ...spec.witnesses];
   const set = Object.values(CDK_MRSC_REGION_SETS).find((s) => s.includes(spec.homeRegion as string));

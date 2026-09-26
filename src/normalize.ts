@@ -1,12 +1,5 @@
 import {quoteForComment} from './escape';
-import type {
-  DescribeTableTable,
-  KeySchemaElement,
-  LocalSecondaryIndexDescription,
-  ReplicaDescription,
-  ScalarAttributeType,
-  TableDefinitionInput
-} from './types';
+import type {DescribeTableTable, KeySchemaElement, LocalSecondaryIndexDescription, MultiRegionConsistency, ReplicaDescription, ScalarAttributeType, SearchSchemaElementType, StreamViewType, TableClass, TableDefinitionInput, VectorDistanceFunction} from './types';
 
 // The single validation + derivation step. Input is UNTRUSTED (a paste in the
 // web tool), so every value that reaches generated code is checked here —
@@ -51,9 +44,9 @@ export interface VectorIndexSpec {
   name: string;
   attribute: string;
   dimensions: number;
-  distanceFunction: 'COSINE' | 'DOT_PRODUCT' | 'EUCLIDEAN';
+  distanceFunction: VectorDistanceFunction;
   projection: ProjectionSpec;
-  searchSchema: Array<{name: string; type: 'HASH' | 'INLINE_FILTER'}>;
+  searchSchema: Array<{name: string; type: SearchSchemaElementType}>;
 }
 
 export type TtlSpec =
@@ -71,11 +64,12 @@ export interface ReplicaGsiOverride {
 export interface ReplicaSpec {
   region: string;
   status: string;
-  tableClass?: 'STANDARD_INFREQUENT_ACCESS';
+  /** The replica's own class when DescribeTable reports one; absent means unknown, and the table's applies. */
+  tableClass?: TableClass;
   readCapacity?: number;
   maxRead?: number;
   gsiOverrides: ReplicaGsiOverride[];
-  /** The replica's own KMS key, for a commented-out setting — never emitted live (D3). */
+  /** The replica's own KMS key, for a commented-out setting — never emitted live: DescribeTable cannot tell an AWS-managed key from a customer-managed one. */
   kmsKeyId?: string;
 }
 
@@ -91,12 +85,13 @@ export interface TableSpec {
   vectorIndexes: VectorIndexSpec[];
   ttl: TtlSpec;
   deletionProtection: boolean;
-  stream: 'NEW_IMAGE' | 'OLD_IMAGE' | 'NEW_AND_OLD_IMAGES' | 'KEYS_ONLY' | undefined;
-  /** `liveKeyArn` is for a commented-out setting only — never emitted live (D3). */
+  stream: StreamViewType | undefined;
+  /** `liveKeyArn` is for a commented-out setting only — never emitted live: DescribeTable cannot tell an AWS-managed key from a customer-managed one. */
   sse: {kind: 'kms'; liveKeyArn?: string} | undefined;
   tableClass: 'STANDARD_INFREQUENT_ACCESS' | undefined;
   replicas: ReplicaSpec[];
-  consistency: 'EVENTUAL' | 'STRONG';
+  consistency: MultiRegionConsistency;
+  /** At most one: DynamoDB allows a single witness region. */
   witnesses: string[];
   /** Header lines about THIS table; every interpolated value is already comment-quoted. */
   notes: string[];
@@ -114,6 +109,8 @@ const PROJECTION_TYPES = new Set<string>(['ALL', 'KEYS_ONLY', 'INCLUDE']);
 const STREAM_VIEW_TYPES = new Set<string>(['NEW_IMAGE', 'OLD_IMAGE', 'NEW_AND_OLD_IMAGES', 'KEYS_ONLY']);
 const DISTANCE_FUNCTIONS = new Set<string>(['COSINE', 'DOT_PRODUCT', 'EUCLIDEAN']);
 const SEARCH_ELEMENT_TYPES = new Set<string>(['HASH', 'INLINE_FILTER']);
+const TABLE_CLASSES = new Set<string>(['STANDARD', 'STANDARD_INFREQUENT_ACCESS']);
+const CONSISTENCY_MODES = new Set<string>(['EVENTUAL', 'STRONG']);
 const MAX_GSI_HASH_KEYS = 4;
 const MAX_GSI_RANGE_KEYS = 4;
 
@@ -123,10 +120,6 @@ function refuse(reason: string): never {
   throw new Refusal(reason);
 }
 
-function q(value: string): string {
-  return quoteForComment(value);
-}
-
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
@@ -134,7 +127,7 @@ function isPositiveInteger(value: unknown): value is number {
 function requireName(value: string | undefined, what: string): string {
   if (typeof value !== 'string' || !NAME_PATTERN.test(value)) {
     refuse(
-      `The ${what} ${value === undefined ? 'is missing' : q(value) + ' is not a valid DynamoDB name'} — expected 3–255 characters from A–Z, a–z, 0–9, "_", "-" and ".".`
+      `The ${what} ${value === undefined ? 'is missing' : quoteForComment(value) + ' is not a valid DynamoDB name'} — expected 3–255 characters from A–Z, a–z, 0–9, "_", "-" and ".".`
     );
   }
   return value;
@@ -142,7 +135,7 @@ function requireName(value: string | undefined, what: string): string {
 
 function requireRegion(value: string | undefined, what: string): string {
   if (typeof value !== 'string' || !REGION_PATTERN.test(value)) {
-    refuse(`The ${what} ${value === undefined ? 'is missing' : q(value) + ' is not an AWS region name'}.`);
+    refuse(`The ${what} ${value === undefined ? 'is missing' : quoteForComment(value) + ' is not an AWS region name'}.`);
   }
   return value;
 }
@@ -160,7 +153,7 @@ function projectionOf(
 ): ProjectionSpec {
   const type = raw?.ProjectionType;
   if (type === undefined || !PROJECTION_TYPES.has(type)) {
-    refuse(`The ${what} projection type ${type === undefined ? 'is missing' : q(type) + ' is not ALL, KEYS_ONLY or INCLUDE'}.`);
+    refuse(`The ${what} projection type ${type === undefined ? 'is missing' : quoteForComment(type) + ' is not ALL, KEYS_ONLY or INCLUDE'}.`);
   }
   const nonKey = raw?.NonKeyAttributes ?? [];
   if (type === 'INCLUDE' && nonKey.length === 0) {
@@ -187,10 +180,10 @@ function keySchemaOf(
   const keys: KeySpec[] = raw.map((k, i) => {
     const name = requireAttributeName(k.AttributeName, `${what} key #${i + 1}`);
     if (k.KeyType !== 'HASH' && k.KeyType !== 'RANGE') {
-      refuse(`The ${what} key ${q(name)} has key type ${q(String(k.KeyType))} — expected HASH or RANGE.`);
+      refuse(`The ${what} key ${quoteForComment(name)} has key type ${quoteForComment(String(k.KeyType))} — expected HASH or RANGE.`);
     }
     if (!attributeTypes.has(name)) {
-      refuse(`The ${what} key attribute ${q(name)} has no entry in AttributeDefinitions — every key attribute needs a declared type.`);
+      refuse(`The ${what} key attribute ${quoteForComment(name)} has no entry in AttributeDefinitions — every key attribute needs a declared type.`);
     }
     return {name, type: k.KeyType};
   });
@@ -214,11 +207,11 @@ function attributeTypesOf(table: DescribeTableTable): Map<string, ScalarAttribut
     const name = requireAttributeName(def.AttributeName, `AttributeDefinitions[${i}] name`);
     const type = def.AttributeType;
     if (type === undefined || !SCALAR_TYPES.has(type)) {
-      refuse(`The attribute ${q(name)} has type ${type === undefined ? 'missing' : q(type)} — expected S, N or B.`);
+      refuse(`The attribute ${quoteForComment(name)} has type ${type === undefined ? 'missing' : quoteForComment(type)} — expected S, N or B.`);
     }
     const prior = types.get(name);
     if (prior !== undefined && prior !== type) {
-      refuse(`The attribute ${q(name)} is declared twice with different types (${prior} and ${type}).`);
+      refuse(`The attribute ${quoteForComment(name)} is declared twice with different types (${prior} and ${type}).`);
     }
     types.set(name, type as ScalarAttributeType);
   }
@@ -267,7 +260,7 @@ function billingOf(table: DescribeTableTable): BillingSpec {
     refuse(
       summary === undefined
         ? 'Cannot determine the billing mode: the table has no BillingModeSummary and zero provisioned capacity.'
-        : `The billing mode ${q(String(summary))} is not PROVISIONED or PAY_PER_REQUEST.`
+        : `The billing mode ${quoteForComment(String(summary))} is not PROVISIONED or PAY_PER_REQUEST.`
     );
   }
   if (mode === 'PROVISIONED') {
@@ -286,10 +279,10 @@ function gsisOf(
   for (const raw of table.GlobalSecondaryIndexes ?? []) {
     const name = requireName(raw.IndexName, 'global secondary index name');
     if (raw.IndexStatus === 'DELETING') {
-      notes.push(`Global secondary index ${q(name)} is DELETING and was left out.`);
+      notes.push(`Global secondary index ${quoteForComment(name)} is DELETING and was left out.`);
       continue;
     }
-    const what = `global secondary index ${q(name)}`;
+    const what = `global secondary index ${quoteForComment(name)}`;
     const spec: GsiSpec = {
       name,
       keySchema: keySchemaOf(raw.KeySchema, what, attributeTypes, {hash: MAX_GSI_HASH_KEYS, range: MAX_GSI_RANGE_KEYS}),
@@ -310,10 +303,10 @@ function lsisOf(
   const tableHash = tableKeys[0]?.name;
   return (table.LocalSecondaryIndexes ?? []).map((raw: LocalSecondaryIndexDescription) => {
     const name = requireName(raw.IndexName, 'local secondary index name');
-    const what = `local secondary index ${q(name)}`;
+    const what = `local secondary index ${quoteForComment(name)}`;
     const keySchema = keySchemaOf(raw.KeySchema, what, attributeTypes, {hash: 1, range: 1});
     if (keySchema[0]?.name !== tableHash) {
-      refuse(`The ${what} has HASH key ${q(keySchema[0]?.name ?? '')} but a local secondary index must share the table's HASH key ${q(tableHash ?? '')}.`);
+      refuse(`The ${what} has HASH key ${quoteForComment(keySchema[0]?.name ?? '')} but a local secondary index must share the table's HASH key ${quoteForComment(tableHash ?? '')}.`);
     }
     if (keySchema.length !== 2) refuse(`The ${what} needs exactly one HASH and one RANGE key.`);
     return {name, keySchema, projection: projectionOf(raw.Projection, what)};
@@ -337,14 +330,14 @@ function vectorIndexesOf(
     if (raw.IndexStatus === 'DELETING' || !complete) {
       notes.push(
         raw.IndexStatus === 'DELETING'
-          ? `Vector index ${q(name)} is DELETING and was left out.`
-          : `Vector index ${q(name)} is still being created (its definition is incomplete) and was left out.`
+          ? `Vector index ${quoteForComment(name)} is DELETING and was left out.`
+          : `Vector index ${quoteForComment(name)} is still being created (its definition is incomplete) and was left out.`
       );
       continue;
     }
-    const what = `vector index ${q(name)}`;
+    const what = `vector index ${quoteForComment(name)}`;
     if (!DISTANCE_FUNCTIONS.has(raw.DistanceFunction as string)) {
-      refuse(`The ${what} distance function ${q(String(raw.DistanceFunction))} is not COSINE, DOT_PRODUCT or EUCLIDEAN.`);
+      refuse(`The ${what} distance function ${quoteForComment(String(raw.DistanceFunction))} is not COSINE, DOT_PRODUCT or EUCLIDEAN.`);
     }
     if ((raw.Dimensions as number) > 4096) refuse(`The ${what} has ${raw.Dimensions} dimensions — the maximum is 4096.`);
     out.push({
@@ -356,14 +349,14 @@ function vectorIndexesOf(
       searchSchema: (raw.SearchSchema ?? []).map((el, i) => {
         const type = el.SearchSchemaElementType;
         if (type === undefined || !SEARCH_ELEMENT_TYPES.has(type)) {
-          refuse(`The ${what} search schema element #${i + 1} has type ${type === undefined ? 'missing' : q(type)} — expected HASH or INLINE_FILTER.`);
+          refuse(`The ${what} search schema element #${i + 1} has type ${type === undefined ? 'missing' : quoteForComment(type)} — expected HASH or INLINE_FILTER.`);
         }
         const name = requireAttributeName(el.AttributeName, `${what} search schema element #${i + 1}`);
         // The service refuses a vector index whose search schema names an
         // undeclared attribute (measured 2026-09-06), so a paste missing one
         // cannot describe a real table.
         if (!attributeTypes.has(name)) {
-          refuse(`The ${what} search schema attribute ${q(name)} has no entry in AttributeDefinitions.`);
+          refuse(`The ${what} search schema attribute ${quoteForComment(name)} has no entry in AttributeDefinitions.`);
         }
         return {name, type: type as 'HASH' | 'INLINE_FILTER'};
       })
@@ -433,7 +426,7 @@ function replicasOf(
     if (region === homeRegion) continue;
     const account = arnParts(r.ReplicaArn)?.account;
     if (homeAccount !== undefined && account !== undefined && account !== homeAccount) {
-      notes.push(`Replica in ${region} belongs to account ${q(account)} and was left out — manage it from that account.`);
+      notes.push(`Replica in ${region} belongs to account ${quoteForComment(account)} and was left out — manage it from that account.`);
       continue;
     }
     if (status === 'DELETING') {
@@ -444,7 +437,7 @@ function replicasOf(
       continue;
     }
     if (status !== 'ACTIVE') {
-      notes.push(`Replica in ${region} is ${q(status)} (kept: leaving a live replica out would make an apply delete it).`);
+      notes.push(`Replica in ${region} is ${quoteForComment(status)} (kept: leaving a live replica out would make an apply delete it).`);
     }
     out.push(replicaSpecOf(r, region, status));
   }
@@ -454,8 +447,12 @@ function replicasOf(
 function replicaSpecOf(r: ReplicaDescription, region: string, status: string): ReplicaSpec {
   const spec: ReplicaSpec = {region, status, gsiOverrides: []};
   if (r.KMSMasterKeyId) spec.kmsKeyId = r.KMSMasterKeyId;
-  if (r.ReplicaTableClassSummary?.TableClass === 'STANDARD_INFREQUENT_ACCESS') {
-    spec.tableClass = 'STANDARD_INFREQUENT_ACCESS';
+  const replicaClass = r.ReplicaTableClassSummary?.TableClass;
+  if (replicaClass !== undefined) {
+    if (!TABLE_CLASSES.has(replicaClass)) {
+      refuse(`The replica in ${region} has table class ${quoteForComment(String(replicaClass))} — expected STANDARD or STANDARD_INFREQUENT_ACCESS.`);
+    }
+    spec.tableClass = replicaClass as TableClass;
   }
   if (isPositiveInteger(r.ProvisionedThroughputOverride?.ReadCapacityUnits)) {
     spec.readCapacity = r.ProvisionedThroughputOverride.ReadCapacityUnits;
@@ -502,17 +499,28 @@ function normalizeOrThrow(input: TableDefinitionInput): TableSpec {
   if (sseRaw?.Status === 'ENABLED' && sseRaw.SSEType === 'KMS') {
     sse = sseRaw.KMSMasterKeyArn ? {kind: 'kms', liveKeyArn: sseRaw.KMSMasterKeyArn} : {kind: 'kms'};
     if (sseRaw.KMSMasterKeyArn) {
-      notes.push(`SSE uses KMS key ${q(sseRaw.KMSMasterKeyArn)} — if that is a customer-managed key, set it on the emitted encryption setting.`);
+      notes.push(`SSE uses KMS key ${quoteForComment(sseRaw.KMSMasterKeyArn)} — if that is a customer-managed key, set it on the emitted encryption setting.`);
     }
   }
 
-  const consistency: TableSpec['consistency'] = table.MultiRegionConsistency === 'STRONG' ? 'STRONG' : 'EVENTUAL';
+  const rawConsistency = table.MultiRegionConsistency;
+  if (rawConsistency !== undefined && !CONSISTENCY_MODES.has(rawConsistency)) {
+    refuse(`MultiRegionConsistency ${quoteForComment(String(rawConsistency))} is not EVENTUAL or STRONG.`);
+  }
+  const consistency: MultiRegionConsistency = rawConsistency === 'STRONG' ? 'STRONG' : 'EVENTUAL';
   const homeRegion = homeRegionOf(table, input);
   const replicas = replicasOf(table, homeRegion, consistency, notes);
   const witnesses = (table.GlobalTableWitnesses ?? []).map((w) => requireRegion(w.RegionName, 'witness region'));
+  if (witnesses.length > 1) {
+    refuse(`DynamoDB allows one witness region and this table lists ${witnesses.length} (${witnesses.join(', ')}).`);
+  }
+  const rawTableClass = table.TableClassSummary?.TableClass;
+  if (rawTableClass !== undefined && !TABLE_CLASSES.has(rawTableClass)) {
+    refuse(`The table class ${quoteForComment(String(rawTableClass))} is not STANDARD or STANDARD_INFREQUENT_ACCESS.`);
+  }
   for (const r of table.Replicas ?? []) {
     if (r.KMSMasterKeyId && replicas.some((s) => s.region === r.RegionName)) {
-      notes.push(`Replica in ${r.RegionName} uses KMS key ${q(r.KMSMasterKeyId)} — set it on that replica if it is customer-managed.`);
+      notes.push(`Replica in ${r.RegionName} uses KMS key ${quoteForComment(r.KMSMasterKeyId)} — set it on that replica if it is customer-managed.`);
     }
   }
 
@@ -529,7 +537,7 @@ function normalizeOrThrow(input: TableDefinitionInput): TableSpec {
     deletionProtection: table.DeletionProtectionEnabled === true,
     stream,
     sse,
-    tableClass: table.TableClassSummary?.TableClass === 'STANDARD_INFREQUENT_ACCESS' ? 'STANDARD_INFREQUENT_ACCESS' : undefined,
+    tableClass: rawTableClass === 'STANDARD_INFREQUENT_ACCESS' ? 'STANDARD_INFREQUENT_ACCESS' : undefined,
     replicas,
     consistency,
     witnesses,

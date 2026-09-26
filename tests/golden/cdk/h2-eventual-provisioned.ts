@@ -23,7 +23,7 @@
 
 import {App, RemovalPolicy, Stack} from "aws-cdk-lib";
 import type {StackProps} from "aws-cdk-lib";
-import {AttributeType, Billing, Capacity, ProjectionType, StreamViewType, TableV2} from "aws-cdk-lib/aws-dynamodb";
+import {AttributeType, Billing, Capacity, ProjectionType, StreamViewType, TableClass, TableV2} from "aws-cdk-lib/aws-dynamodb";
 import type {Construct} from "constructs";
 
 export class LedgerStack extends Stack {
@@ -49,10 +49,12 @@ export class LedgerStack extends Stack {
         },
       ],
       dynamoStream: StreamViewType.NEW_AND_OLD_IMAGES,
+      tableClass: TableClass.STANDARD_INFREQUENT_ACCESS,
       deletionProtection: true,
       replicas: [
         {
           region: "eu-west-1",
+          tableClass: TableClass.STANDARD,
           readCapacity: Capacity.fixed(7),
           globalSecondaryIndexOptions: {
             "by-account": {readCapacity: Capacity.fixed(3)},

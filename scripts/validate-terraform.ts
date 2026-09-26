@@ -13,11 +13,14 @@
 import {execFileSync, spawn} from 'node:child_process';
 import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
+import type {GoldenRecord} from '../tests/helpers/goldens.ts';
 import {
   deriveHome,
   projectTerraformValues,
+  stableJson,
   terraformExpectation,
   type RawTable,
+  type RawTtl,
   type TerraformExpectation
 } from '../tests/tools/compare.ts';
 
@@ -42,11 +45,20 @@ const pluginCache = process.env.TF_PLUGIN_CACHE_DIR ?? join(ROOT, '.validate-wor
 mkdirSync(pluginCache, {recursive: true});
 const env = {...process.env, TF_PLUGIN_CACHE_DIR: pluginCache, TF_IN_AUTOMATION: '1'};
 
-type GoldenRecord = {fixture: string; region?: string};
 const records = JSON.parse(readFileSync(join(FIXTURES, 'goldens.json'), 'utf8')) as Record<string, GoldenRecord>;
 
 function tf(cwd: string, args: string[]): string {
   return execFileSync('terraform', [...args, '-no-color'], {cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']});
+}
+
+/** The `describe-time-to-live` sidecar, when the fixture has one. */
+function readTtl(fixture: string): RawTtl {
+  try {
+    return (JSON.parse(readFileSync(join(FIXTURES, `${fixture}.ttl.json`), 'utf8')) as {TimeToLiveDescription: RawTtl}).TimeToLiveDescription;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return undefined;
+  }
 }
 
 function overrideFile(regionless: boolean): string {
@@ -84,15 +96,6 @@ async function startStub(): Promise<() => void> {
   return () => child.kill();
 }
 
-function stable(v: unknown): string {
-  return JSON.stringify(v, (_k, val: unknown) => {
-    if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
-      return Object.fromEntries(Object.entries(val as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)));
-    }
-    return val;
-  }, 2);
-}
-
 type Plan = {
   planned_values: {root_module: {resources: Array<{type: string; values: Record<string, unknown>}>}};
   resource_changes: Array<{change: {actions: string[]}}>;
@@ -103,7 +106,7 @@ function validateGolden(name: string, record: GoldenRecord): string[] {
   const failures: string[] = [];
   const goldenText = readFileSync(join(GOLDENS, `${name}.tf`), 'utf8');
   const table = (JSON.parse(readFileSync(join(FIXTURES, `${record.fixture}.describe.json`), 'utf8')) as {Table: RawTable}).Table;
-  const expectation: TerraformExpectation = terraformExpectation(table, record.region);
+  const expectation: TerraformExpectation = terraformExpectation(table, record.region, readTtl(record.fixture));
   const home = deriveHome(table, record.region);
 
   // The golden declares a provider region IFF the raw fixture has a home region.
@@ -135,8 +138,8 @@ function validateGolden(name: string, record: GoldenRecord): string[] {
   }
   const values = resources[0]?.values ?? {};
   const actual = projectTerraformValues(values, expectation);
-  if (stable(actual) !== stable(expectation.values)) {
-    failures.push(`planned values differ from the raw fixture\n--- expected\n${stable(expectation.values)}\n--- planned\n${stable(actual)}`);
+  if (stableJson(actual) !== stableJson(expectation.values)) {
+    failures.push(`planned values differ from the raw fixture\n--- expected\n${stableJson(expectation.values)}\n--- planned\n${stableJson(actual)}`);
   }
   // The effective provider region is the golden's own, or the override's dummy for a region-less golden.
   const configuredRegion = plan.configuration.provider_config?.aws?.expressions?.region?.constant_value;

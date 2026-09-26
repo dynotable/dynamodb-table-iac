@@ -11,7 +11,9 @@
 #   - settings of non-home replicas that DynamoDB never synchronizes (their deletion protection, PITR and tags are only visible from their own region)
 #
 # Notes:
+#   - Global secondary index "old-by-category" is DELETING and was left out.
 #   - Vector index "by-title-embedding" is still being created (its definition is incomplete) and was left out.
+#   - Vector index "old-embedding" is DELETING and was left out.
 #   - TTL: not provided — include the output of `aws dynamodb describe-time-to-live` to add it.
 #
 # To adopt the live table instead of creating a new one, uncomment this import

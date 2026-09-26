@@ -9,7 +9,7 @@ import {GOLDEN_NAMES, goldenInput} from './helpers/goldens';
 
 // Goldens are hand-written from the fixtures against aws-cdk-lib 2.271's
 // TableV2 API (source read 2026-09-26); the emitter is made to match them.
-// They are real `.ts` files so Task 7 can `tsc` + `cdk synth` them unchanged,
+// They are real `.ts` files so scripts/validate-cdk.ts can compile and synthesize them unchanged,
 // which is why tsconfig excludes tests/golden.
 const GOLDEN = join(import.meta.dirname, 'golden', 'cdk');
 
@@ -61,7 +61,7 @@ describe('emitCdk — goldens', () => {
 // The goldens must compile against aws-cdk-lib with `noUnusedLocals`, and the
 // repo does not install it — so the import list is checked structurally here:
 // every imported name is used in code, and every `Name.` used in code is
-// imported. Task 7 runs the real `tsc`.
+// imported. scripts/validate-cdk.ts runs the real `tsc`.
 describe('emitCdk — the import list matches the code', () => {
   it.each(OK_GOLDENS)('%s', (name) => {
     const code = emit(name);

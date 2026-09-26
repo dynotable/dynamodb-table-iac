@@ -9,6 +9,9 @@
 //                           — TableDefinitionInput → runnable file, or a
 //                             one-sentence refusal
 //   NOT_EMITTED             — the features every header lists as not emitted
+//
+// Nothing else is public: the normalized spec, the renderers and the id helpers
+// are implementation detail and free to change.
 
 export type {
   AttributeDefinition,
@@ -37,22 +40,8 @@ export type {
 } from './types';
 export {parseDescribeTableJson} from './parse';
 export type {ParseResult} from './parse';
-export {normalize, referencedAttributes, REGION_PATTERN} from './normalize';
-export type {
-  BillingSpec,
-  GsiSpec,
-  KeySpec,
-  LsiSpec,
-  NormalizeResult,
-  ProjectionSpec,
-  ReplicaSpec,
-  TableSpec,
-  TtlSpec,
-  VectorIndexSpec
-} from './normalize';
-export {pascalId, terraformId} from './names';
 export {NOT_EMITTED} from './not-emitted';
-export {emitTerraform, renderTerraform} from './emit/terraform';
-export {buildCloudFormationTemplate, emitCloudFormation, renderCloudFormation} from './emit/cloudformation';
+export {emitTerraform} from './emit/terraform';
+export {emitCloudFormation} from './emit/cloudformation';
 export type {CloudFormationOptions, CloudFormationSyntax} from './emit/cloudformation';
-export {CDK_LIB_VERSION, emitCdk, renderCdk} from './emit/cdk';
+export {emitCdk} from './emit/cdk';
