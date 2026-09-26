@@ -24,3 +24,61 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm check:package
+
+  # Every Terraform golden planned for real against a DescribeTable stub, on the
+  # oldest provider the header constraint admits and the newest one measured.
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: ['6.29.0', '6.66.0']
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.validate-work/plugin-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.16.4'
+          terraform_wrapper: false
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+      - run: node scripts/validate-terraform.ts --provider ${{ matrix.provider }}
+
+  # Every CDK golden compiled (strict) and synthesized against the pinned
+  # aws-cdk-lib; the one GlobalTable must equal the CloudFormation golden.
+  cdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir validate/cdk install
+      - run: node scripts/validate-cdk.ts
+
+  # cfn-lint over every CloudFormation golden, then a YAML 1.1 (PyYAML) parse of
+  # each YAML golden compared with the emitter's JSON form of the same fixture.
+  cloudformation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cfn-lint==1.57.0 pyyaml==6.0.3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: cfn-lint --non-zero-exit-code error tests/golden/cloudformation/*
+      - run: node scripts/render-cfn-json.mjs "$RUNNER_TEMP/cfn-json"
+      - run: python3 scripts/check-yaml-11.py tests/golden/cloudformation "$RUNNER_TEMP/cfn-json"

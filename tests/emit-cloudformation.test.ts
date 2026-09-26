@@ -4,6 +4,7 @@ import {parse as parseYaml} from 'yaml';
 import {describe, expect, it} from 'vitest';
 import {emitCloudFormation} from '../src/emit/cloudformation';
 import {fixtureInput, fixtureTable} from './helpers/fixtures';
+import {GOLDEN_NAMES, goldenInput} from './helpers/goldens';
 
 // YAML goldens are hand-written from the AWS::DynamoDB::GlobalTable schema
 // (aws-dynamodb-globaltable.json, fetched 2026-09-26); the emitter is made to
@@ -11,27 +12,13 @@ import {fixtureInput, fixtureTable} from './helpers/fixtures';
 // the same tree, which the YAML↔JSON parity test proves for every fixture.
 const GOLDEN = join(import.meta.dirname, 'golden', 'cloudformation');
 
-const CASES = [
-  ['a-core', {region: 'us-east-1'}],
-  ['b-provisioned', {region: 'us-east-1'}],
-  ['b-hash-only', {region: 'us-east-1'}],
-  ['c-stream', {region: 'us-east-1'}],
-  ['c-extras-aws', {}],
-  ['d-vector', {}],
-  ['e-multikey-gsi', {}],
-  ['f-hostile', {}],
-  ['h1-eventual-ondemand', {}],
-  ['h2-eventual-provisioned', {}],
-  ['h3-strong-cross-continent', {}],
-  ['h4-strong-witness', {}]
-] as const;
 
 function golden(name: string, ext: 'yaml' | 'json'): string {
   return readFileSync(join(GOLDEN, `${name}.${ext}`), 'utf8');
 }
 
-function emit(name: string, syntax: 'yaml' | 'json', overrides: Parameters<typeof fixtureInput>[1] = {}): string {
-  const result = emitCloudFormation(fixtureInput(name, overrides), {syntax});
+function emit(name: string, syntax: 'yaml' | 'json'): string {
+  const result = emitCloudFormation(goldenInput(name), {syntax});
   if (!result.ok) throw new Error(`expected ok for ${name}, got: ${result.reason}`);
   return result.code;
 }
@@ -41,27 +28,23 @@ type Template = {
   Resources: Record<string, {Type: string; DeletionPolicy: string; UpdateReplacePolicy: string; Properties: Record<string, unknown>}>;
 };
 
-function template(name: string, overrides: Parameters<typeof fixtureInput>[1] = {}): Template {
-  return JSON.parse(emit(name, 'json', overrides)) as Template;
+function template(name: string): Template {
+  return JSON.parse(emit(name, 'json')) as Template;
 }
 
 describe('emitCloudFormation — goldens', () => {
-  it.each(CASES)('%s (yaml)', (name, overrides) => {
-    expect(emit(name, 'yaml', overrides)).toBe(golden(name, 'yaml'));
+  it.each(GOLDEN_NAMES)('%s (yaml)', (name) => {
+    expect(emit(name, 'yaml')).toBe(golden(name, 'yaml'));
   });
 
   it('a-core (json)', () => {
-    expect(emit('a-core', 'json', {region: 'us-east-1'})).toBe(golden('a-core', 'json'));
-  });
-
-  it('i-regionless: b-provisioned without a region puts the stack region in the sole replica', () => {
-    expect(emit('b-provisioned', 'yaml')).toBe(golden('i-regionless', 'yaml'));
+    expect(emit('a-core', 'json')).toBe(golden('a-core', 'json'));
   });
 });
 
 describe('emitCloudFormation — YAML and JSON are the same document', () => {
-  it.each([...CASES, ['b-provisioned', {}]] as const)('%s', (name, overrides) => {
-    expect(parseYaml(emit(name, 'yaml', overrides))).toEqual(JSON.parse(emit(name, 'json', overrides)));
+  it.each(GOLDEN_NAMES)('%s', (name) => {
+    expect(parseYaml(emit(name, 'yaml'))).toEqual(JSON.parse(emit(name, 'json')));
   });
 });
 
@@ -71,26 +54,26 @@ describe('emitCloudFormation — YAML and JSON are the same document', () => {
 // are asserted here from expectations written by hand off the raw fixtures.
 describe('emitCloudFormation — invariants stated from the fixtures', () => {
   it.each([
-    ['a-core', {region: 'us-east-1'}, ['pk', 'sk', 'gsi1pk', 'createdAt', 'status']],
-    ['b-provisioned', {region: 'us-east-1'}, ['pk', 'sk', 'email', 'score']],
-    ['d-vector', {}, ['pk', 'sk', 'tenant', 'category']],
-    ['e-multikey-gsi', {}, ['pk', 'sk', 'tenant', 'kind', 'ts', 'actor']],
-    ['h1-eventual-ondemand', {}, ['pk', 'sk', 'userId']]
-  ] as const)('%s declares exactly the key (and search-schema) attributes', (name, overrides, expected) => {
-    const props = Object.values(template(name, overrides).Resources)[0]?.Properties as {
+    ['a-core', ['pk', 'sk', 'gsi1pk', 'createdAt', 'status']],
+    ['b-provisioned', ['pk', 'sk', 'email', 'score']],
+    ['d-vector', ['pk', 'sk', 'tenant', 'category']],
+    ['e-multikey-gsi', ['pk', 'sk', 'tenant', 'kind', 'ts', 'actor']],
+    ['h1-eventual-ondemand', ['pk', 'sk', 'userId']]
+  ] as const)('%s declares exactly the key (and search-schema) attributes', (name, expected) => {
+    const props = Object.values(template(name).Resources)[0]?.Properties as {
       AttributeDefinitions: Array<{AttributeName: string}>;
     };
     expect(props.AttributeDefinitions.map((a) => a.AttributeName).sort()).toEqual([...expected].sort());
   });
 
   it.each([
-    ['a-core', {region: 'us-east-1'}, ['us-east-1']],
-    ['h1-eventual-ondemand', {}, ['us-east-1', 'eu-west-1', 'ap-northeast-1']],
-    ['h2-eventual-provisioned', {}, ['us-east-1', 'eu-west-1']],
-    ['h3-strong-cross-continent', {}, ['us-east-1', 'eu-west-1', 'ap-northeast-1']],
-    ['h4-strong-witness', {}, ['us-east-1', 'us-east-2']]
-  ] as const)('%s lists the home region first, then every kept replica', (name, overrides, expected) => {
-    const props = Object.values(template(name, overrides).Resources)[0]?.Properties as {
+    ['a-core', ['us-east-1']],
+    ['h1-eventual-ondemand', ['us-east-1', 'eu-west-1', 'ap-northeast-1']],
+    ['h2-eventual-provisioned', ['us-east-1', 'eu-west-1']],
+    ['h3-strong-cross-continent', ['us-east-1', 'eu-west-1', 'ap-northeast-1']],
+    ['h4-strong-witness', ['us-east-1', 'us-east-2']]
+  ] as const)('%s lists the home region first, then every kept replica', (name, expected) => {
+    const props = Object.values(template(name).Resources)[0]?.Properties as {
       Replicas: Array<{Region: string}>;
     };
     // h1: sa-east-1 is DELETING and eu-central-1 belongs to another account — neither may appear.
@@ -124,8 +107,8 @@ describe('emitCloudFormation — invariants stated from the fixtures', () => {
   });
 
   it('keeps the Description under CloudFormation\'s 1024-byte limit and the resource retained on delete', () => {
-    for (const [name, overrides] of CASES) {
-      const t = template(name, overrides);
+    for (const name of GOLDEN_NAMES) {
+      const t = template(name);
       expect(Buffer.byteLength(t.Description, 'utf8')).toBeLessThanOrEqual(1024);
       const resource = Object.values(t.Resources)[0];
       expect(resource?.Type).toBe('AWS::DynamoDB::GlobalTable');
@@ -135,7 +118,7 @@ describe('emitCloudFormation — invariants stated from the fixtures', () => {
   });
 
   it('a stream on a single-region table is kept as the live view type', () => {
-    const props = Object.values(template('c-stream', {region: 'us-east-1'}).Resources)[0]?.Properties as Record<string, unknown>;
+    const props = Object.values(template('c-stream').Resources)[0]?.Properties as Record<string, unknown>;
     expect(props.StreamSpecification).toEqual({StreamViewType: 'NEW_AND_OLD_IMAGES'});
   });
 

@@ -58,9 +58,11 @@
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
-    "lint": "oxlint src tests",
+    "lint": "oxlint src tests scripts",
     "typecheck": "tsc --noEmit",
-    "check:package": "publint && attw --pack ."
+    "check:package": "publint && attw --pack .",
+    "validate:terraform": "node scripts/validate-terraform.ts",
+    "validate:cdk": "node scripts/validate-cdk.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",

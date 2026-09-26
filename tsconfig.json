@@ -15,11 +15,13 @@
     "noEmit": true,
     "types": [
       "node"
-    ]
+    ],
+    "allowImportingTsExtensions": true
   },
   "include": [
     "src",
-    "tests"
+    "tests",
+    "scripts"
   ],
   "exclude": [
     "tests/golden"

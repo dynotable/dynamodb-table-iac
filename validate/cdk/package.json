@@ -1,0 +1,10 @@
+{
+  "name": "dynamodb-table-iac-validate-cdk",
+  "private": true,
+  "description": "Pinned aws-cdk-lib used by scripts/validate-cdk.ts to compile and synthesize the CDK goldens. Not part of the published package.",
+  "devDependencies": {
+    "aws-cdk-lib": "2.271.0",
+    "constructs": "10.4.5",
+    "typescript": "5.9.3"
+  }
+}

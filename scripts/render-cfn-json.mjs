@@ -14,10 +14,7 @@ mkdirSync(outDir, {recursive: true});
 const fixtures = join(import.meta.dirname, '..', 'tests', 'fixtures');
 const goldens = join(import.meta.dirname, '..', 'tests', 'golden', 'cloudformation');
 
-// The goldens that are emitted WITH a region, and the fixture each one renders
-// (mirrors tests/emit-cloudformation.test.ts).
-const REGION = {'a-core': 'us-east-1', 'b-provisioned': 'us-east-1', 'b-hash-only': 'us-east-1', 'c-stream': 'us-east-1'};
-const ALIAS = {'i-regionless': 'b-provisioned'};
+const records = JSON.parse(readFileSync(join(fixtures, 'goldens.json'), 'utf8'));
 
 function fixtureInput(name, region) {
   const table = JSON.parse(readFileSync(join(fixtures, `${name}.describe.json`), 'utf8')).Table;
@@ -32,9 +29,9 @@ function fixtureInput(name, region) {
 
 for (const file of readdirSync(goldens).filter((f) => f.endsWith('.yaml'))) {
   const golden = file.replace(/\.yaml$/, '');
-  const fixture = ALIAS[golden] ?? golden;
-  const region = golden in ALIAS ? undefined : REGION[fixture];
-  const result = emitCloudFormation(fixtureInput(fixture, region), {syntax: 'json'});
+  const record = records[golden];
+  if (!record) throw new Error(`${golden}: not in tests/fixtures/goldens.json`);
+  const result = emitCloudFormation(fixtureInput(record.fixture, record.region), {syntax: 'json'});
   if (!result.ok) throw new Error(`${golden}: ${result.reason}`);
   writeFileSync(join(outDir, `${golden}.json`), result.code);
 }

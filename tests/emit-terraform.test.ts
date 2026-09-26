@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import {describe, expect, it} from 'vitest';
 import {emitTerraform} from '../src/emit/terraform';
 import {fixtureInput} from './helpers/fixtures';
+import {GOLDEN_NAMES, goldenInput} from './helpers/goldens';
 
 // Goldens are hand-written from the hashicorp/aws v6.66 `aws_dynamodb_table`
 // docs and kept `terraform fmt`-clean (CI runs fmt -check over them); the
@@ -13,32 +14,15 @@ function golden(name: string): string {
   return readFileSync(join(GOLDEN, `${name}.tf`), 'utf8');
 }
 
-function code(name: string, overrides: Parameters<typeof fixtureInput>[1] = {}): string {
-  const result = emitTerraform(fixtureInput(name, overrides));
+function code(name: string): string {
+  const result = emitTerraform(goldenInput(name));
   if (!result.ok) throw new Error(`expected ok for ${name}, got: ${result.reason}`);
   return result.code;
 }
 
 describe('emitTerraform — goldens', () => {
-  it.each([
-    ['a-core', {region: 'us-east-1'}],
-    ['b-provisioned', {region: 'us-east-1'}],
-    ['b-hash-only', {region: 'us-east-1'}],
-    ['c-stream', {region: 'us-east-1'}],
-    ['c-extras-aws', {}],
-    ['d-vector', {}],
-    ['e-multikey-gsi', {}],
-    ['f-hostile', {}],
-    ['h1-eventual-ondemand', {}],
-    ['h2-eventual-provisioned', {}],
-    ['h3-strong-cross-continent', {}],
-    ['h4-strong-witness', {}]
-  ] as const)('%s', (name, overrides) => {
-    expect(code(name, overrides)).toBe(golden(name));
-  });
-
-  it('i-regionless: b-provisioned without a region declares no provider region', () => {
-    expect(code('b-provisioned')).toBe(golden('i-regionless'));
+  it.each(GOLDEN_NAMES)('%s', (name) => {
+    expect(code(name)).toBe(golden(name));
   });
 });
 

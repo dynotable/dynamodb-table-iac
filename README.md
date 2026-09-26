@@ -70,5 +70,30 @@ it over the live table:
 
 ## Verification
 
-`aws cloudformation validate-template` is a manual check over the CloudFormation
-goldens; CI runs `terraform plan`, `cdk synth` and `cfn-lint` over every golden.
+Every golden output in `tests/golden/` is hand-written and then checked by the
+real tool in CI:
+
+- **Terraform** — `terraform plan` on hashicorp/aws 6.29 and 6.66 against a
+  local `DescribeTable` stub, with the planned values compared to an
+  expectation derived independently from the raw fixture; `terraform fmt -check`.
+- **AWS CDK** — `tsc --strict` and a synth of every golden; the one
+  `AWS::DynamoDB::GlobalTable` must equal the CloudFormation golden.
+- **CloudFormation** — `cfn-lint`, plus a YAML 1.1 (PyYAML) parse of every
+  YAML golden compared with the emitter's JSON form. `aws cloudformation
+  validate-template --template-body file://<golden>` is the manual, credentialed
+  check; it is not run in CI.
+
+Run them locally with `pnpm validate:terraform --provider 6.66.0` (needs
+`terraform`), `pnpm --dir validate/cdk install && pnpm validate:cdk`, and
+`cfn-lint --non-zero-exit-code error tests/golden/cloudformation/*`.
+
+## Input contract
+
+The input is the wire shape as the AWS CLI prints it — PascalCase
+`DescribeTable` output, optionally with `DescribeTimeToLive` output and the
+region the table was described in. `parseDescribeTableJson` accepts the CLI's
+`{"Table": …}` envelope or a bare table. The table's own region is read from
+`TableArn` when it carries a real one; a DynamoDB Local capture (`ddblocal`)
+falls back to the given region, and without one the output is region-less.
+Attribute and index names are arbitrary UTF-8 and are escaped for each target;
+a name can never close a string or a comment in the generated file.

@@ -5,6 +5,7 @@ import {cdkRefusal, emitCdk} from '../src/emit/cdk';
 import {normalize} from '../src/normalize';
 import type {DescribeTableTable} from '../src/types';
 import {fixtureInput, fixtureTable} from './helpers/fixtures';
+import {GOLDEN_NAMES, goldenInput} from './helpers/goldens';
 
 // Goldens are hand-written from the fixtures against aws-cdk-lib 2.271's
 // TableV2 API (source read 2026-09-26); the emitter is made to match them.
@@ -12,26 +13,14 @@ import {fixtureInput, fixtureTable} from './helpers/fixtures';
 // which is why tsconfig excludes tests/golden.
 const GOLDEN = join(import.meta.dirname, 'golden', 'cdk');
 
-const CASES = [
-  ['a-core', {region: 'us-east-1'}],
-  ['b-provisioned', {region: 'us-east-1'}],
-  ['b-hash-only', {region: 'us-east-1'}],
-  ['c-stream', {region: 'us-east-1'}],
-  ['c-extras-aws', {}],
-  ['d-vector', {}],
-  ['e-multikey-gsi', {}],
-  ['f-hostile', {}],
-  ['h1-eventual-ondemand', {}],
-  ['h2-eventual-provisioned', {}],
-  ['h4-strong-witness', {}]
-] as const;
+const OK_GOLDENS = GOLDEN_NAMES.filter((name) => name !== 'h3-strong-cross-continent');
 
 function golden(file: string): string {
   return readFileSync(join(GOLDEN, file), 'utf8');
 }
 
-function emit(name: string, overrides: Parameters<typeof fixtureInput>[1] = {}): string {
-  const result = emitCdk(fixtureInput(name, overrides));
+function emit(name: string): string {
+  const result = emitCdk(goldenInput(name));
   if (!result.ok) throw new Error(`expected ok for ${name}, got: ${result.reason}`);
   return result.code;
 }
@@ -58,16 +47,12 @@ function codeLines(code: string): string {
 }
 
 describe('emitCdk — goldens', () => {
-  it.each(CASES)('%s', (name, overrides) => {
-    expect(emit(name, overrides)).toBe(golden(`${name}.ts`));
-  });
-
-  it('i-regionless: b-provisioned without a region gets a stack with no env', () => {
-    expect(emit('b-provisioned')).toBe(golden('i-regionless.ts'));
+  it.each(OK_GOLDENS)('%s', (name) => {
+    expect(emit(name)).toBe(golden(`${name}.ts`));
   });
 
   it('h3-strong-cross-continent: refused with the recorded reason', () => {
-    const result = emitCdk(fixtureInput('h3-strong-cross-continent'));
+    const result = emitCdk(goldenInput('h3-strong-cross-continent'));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(`${result.reason}\n`).toBe(golden('h3-strong-cross-continent.refusal.txt'));
   });
@@ -78,8 +63,8 @@ describe('emitCdk — goldens', () => {
 // every imported name is used in code, and every `Name.` used in code is
 // imported. Task 7 runs the real `tsc`.
 describe('emitCdk — the import list matches the code', () => {
-  it.each([...CASES, ['b-provisioned', {}]] as const)('%s', (name, overrides) => {
-    const code = emit(name, overrides);
+  it.each(OK_GOLDENS)('%s', (name) => {
+    const code = emit(name);
     const match = DDB_IMPORT.exec(code);
     expect(match).not.toBeNull();
     const imported = (match as RegExpExecArray)[1]?.split(', ') ?? [];
