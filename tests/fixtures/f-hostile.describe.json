@@ -1,0 +1,116 @@
+{
+  "Table": {
+    "AttributeDefinitions": [
+      {
+        "AttributeName": "pk\"quote",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "sk${interp}",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "%{directive}",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "back\\slash",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "new\nline",
+        "AttributeType": "N"
+      }
+    ],
+    "TableName": "yes",
+    "KeySchema": [
+      {
+        "AttributeName": "pk\"quote",
+        "KeyType": "HASH"
+      },
+      {
+        "AttributeName": "sk${interp}",
+        "KeyType": "RANGE"
+      }
+    ],
+    "TableStatus": "ACTIVE",
+    "CreationDateTime": "2026-09-20T09:15:00.000Z",
+    "ProvisionedThroughput": {
+      "NumberOfDecreasesToday": 0,
+      "ReadCapacityUnits": 0,
+      "WriteCapacityUnits": 0
+    },
+    "TableSizeBytes": 4096,
+    "ItemCount": 12,
+    "TableArn": "arn:aws:dynamodb:us-east-1:123456789012:table/yes",
+    "TableId": "0f8d4b2a-1111-4c3d-9e7f-abcdef012345",
+    "DeletionProtectionEnabled": false,
+    "WarmThroughput": {
+      "ReadUnitsPerSecond": 12000,
+      "WriteUnitsPerSecond": 4000,
+      "Status": "ACTIVE"
+    },
+    "BillingModeSummary": {
+      "BillingMode": "PAY_PER_REQUEST",
+      "LastUpdateToPayPerRequestDateTime": "2026-09-20T09:15:00.000Z"
+    },
+    "GlobalSecondaryIndexes": [
+      {
+        "IndexName": "hostile-gsi",
+        "KeySchema": [
+          {
+            "AttributeName": "%{directive}",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "back\\slash",
+            "KeyType": "RANGE"
+          }
+        ],
+        "Projection": {
+          "ProjectionType": "INCLUDE",
+          "NonKeyAttributes": [
+            "close*/comment",
+            "line\u2028sep",
+            "nel\u0085char",
+            "c1\u009fchar",
+            "__proto__",
+            "constructor",
+            "\nresource \"terraform_data\" \"x\" {}",
+            "\"}); new CfnOutput(this,\"x\",{value:\"y\"}); ({\""
+          ]
+        },
+        "IndexStatus": "ACTIVE",
+        "ProvisionedThroughput": {
+          "NumberOfDecreasesToday": 0,
+          "ReadCapacityUnits": 0,
+          "WriteCapacityUnits": 0
+        },
+        "IndexSizeBytes": 0,
+        "ItemCount": 0,
+        "IndexArn": "arn:aws:dynamodb:us-east-1:123456789012:table/yes/index/hostile-gsi"
+      }
+    ],
+    "LocalSecondaryIndexes": [
+      {
+        "IndexName": "hostile-lsi",
+        "KeySchema": [
+          {
+            "AttributeName": "pk\"quote",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "new\nline",
+            "KeyType": "RANGE"
+          }
+        ],
+        "Projection": {
+          "ProjectionType": "ALL"
+        },
+        "IndexSizeBytes": 0,
+        "ItemCount": 0,
+        "IndexArn": "arn:aws:dynamodb:us-east-1:123456789012:table/yes/index/hostile-lsi"
+      }
+    ]
+  }
+}

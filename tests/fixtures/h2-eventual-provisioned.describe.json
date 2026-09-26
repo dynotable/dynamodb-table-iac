@@ -1,0 +1,100 @@
+{
+  "Table": {
+    "AttributeDefinitions": [
+      {
+        "AttributeName": "pk",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "sk",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "account",
+        "AttributeType": "S"
+      }
+    ],
+    "TableName": "ledger",
+    "KeySchema": [
+      {
+        "AttributeName": "pk",
+        "KeyType": "HASH"
+      },
+      {
+        "AttributeName": "sk",
+        "KeyType": "RANGE"
+      }
+    ],
+    "TableStatus": "ACTIVE",
+    "CreationDateTime": "2026-09-20T09:15:00.000Z",
+    "ProvisionedThroughput": {
+      "NumberOfDecreasesToday": 0,
+      "ReadCapacityUnits": 20,
+      "WriteCapacityUnits": 10
+    },
+    "TableSizeBytes": 4096,
+    "ItemCount": 12,
+    "TableArn": "arn:aws:dynamodb:us-east-1:123456789012:table/ledger",
+    "TableId": "0f8d4b2a-1111-4c3d-9e7f-abcdef012345",
+    "DeletionProtectionEnabled": true,
+    "WarmThroughput": {
+      "ReadUnitsPerSecond": 12000,
+      "WriteUnitsPerSecond": 4000,
+      "Status": "ACTIVE"
+    },
+    "GlobalSecondaryIndexes": [
+      {
+        "IndexName": "by-account",
+        "KeySchema": [
+          {
+            "AttributeName": "account",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "sk",
+            "KeyType": "RANGE"
+          }
+        ],
+        "Projection": {
+          "ProjectionType": "ALL"
+        },
+        "IndexStatus": "ACTIVE",
+        "ProvisionedThroughput": {
+          "NumberOfDecreasesToday": 0,
+          "ReadCapacityUnits": 8,
+          "WriteCapacityUnits": 4
+        },
+        "IndexSizeBytes": 0,
+        "ItemCount": 0,
+        "IndexArn": "arn:aws:dynamodb:us-east-1:123456789012:table/ledger/index/by-account"
+      }
+    ],
+    "BillingModeSummary": {
+      "BillingMode": "PROVISIONED"
+    },
+    "StreamSpecification": {
+      "StreamEnabled": true,
+      "StreamViewType": "NEW_AND_OLD_IMAGES"
+    },
+    "GlobalTableVersion": "2019.11.21",
+    "MultiRegionConsistency": "EVENTUAL",
+    "Replicas": [
+      {
+        "RegionName": "eu-west-1",
+        "ReplicaStatus": "ACTIVE",
+        "ReplicaArn": "arn:aws:dynamodb:eu-west-1:123456789012:table/ledger",
+        "ProvisionedThroughputOverride": {
+          "ReadCapacityUnits": 7
+        },
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "by-account",
+            "ProvisionedThroughputOverride": {
+              "ReadCapacityUnits": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -10,4 +10,30 @@
 //                             one-sentence refusal
 //   NOT_EMITTED             — the features every header lists as not emitted
 
-export const PACKAGE_NAME = 'dynamodb-table-iac';
+export type {
+  AttributeDefinition,
+  BillingMode,
+  DescribeTableTable,
+  EmitResult,
+  GlobalSecondaryIndexDescription,
+  GlobalTableWitnessDescription,
+  IndexStatus,
+  KeySchemaElement,
+  KeyType,
+  LocalSecondaryIndexDescription,
+  MultiRegionConsistency,
+  Projection,
+  ProjectionType,
+  ReplicaDescription,
+  ScalarAttributeType,
+  SSEDescription,
+  StreamSpecification,
+  StreamViewType,
+  TableClass,
+  TableDefinitionInput,
+  TimeToLiveDescription,
+  TimeToLiveStatus,
+  VectorIndexDescription
+} from './types';
+export {parseDescribeTableJson} from './parse';
+export type {ParseResult} from './parse';
