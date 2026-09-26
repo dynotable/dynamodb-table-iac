@@ -37,3 +37,18 @@ export type {
 } from './types';
 export {parseDescribeTableJson} from './parse';
 export type {ParseResult} from './parse';
+export {normalize, referencedAttributes, REGION_PATTERN} from './normalize';
+export type {
+  BillingSpec,
+  GsiSpec,
+  KeySpec,
+  LsiSpec,
+  NormalizeResult,
+  ProjectionSpec,
+  ReplicaSpec,
+  TableSpec,
+  TtlSpec,
+  VectorIndexSpec
+} from './normalize';
+export {pascalId, terraformId} from './names';
+export {NOT_EMITTED} from './not-emitted';
