@@ -320,7 +320,11 @@ function lsisOf(
   });
 }
 
-function vectorIndexesOf(table: DescribeTableTable, notes: string[]): VectorIndexSpec[] {
+function vectorIndexesOf(
+  table: DescribeTableTable,
+  attributeTypes: ReadonlyMap<string, ScalarAttributeType>,
+  notes: string[]
+): VectorIndexSpec[] {
   const out: VectorIndexSpec[] = [];
   for (const raw of table.VectorIndexes ?? []) {
     const name = requireName(raw.IndexName, 'vector index name');
@@ -354,10 +358,14 @@ function vectorIndexesOf(table: DescribeTableTable, notes: string[]): VectorInde
         if (type === undefined || !SEARCH_ELEMENT_TYPES.has(type)) {
           refuse(`The ${what} search schema element #${i + 1} has type ${type === undefined ? 'missing' : q(type)} — expected HASH or INLINE_FILTER.`);
         }
-        return {
-          name: requireAttributeName(el.AttributeName, `${what} search schema element #${i + 1}`),
-          type: type as 'HASH' | 'INLINE_FILTER'
-        };
+        const name = requireAttributeName(el.AttributeName, `${what} search schema element #${i + 1}`);
+        // The service refuses a vector index whose search schema names an
+        // undeclared attribute (measured 2026-09-06), so a paste missing one
+        // cannot describe a real table.
+        if (!attributeTypes.has(name)) {
+          refuse(`The ${what} search schema attribute ${q(name)} has no entry in AttributeDefinitions.`);
+        }
+        return {name, type: type as 'HASH' | 'INLINE_FILTER'};
       })
     });
   }
@@ -478,7 +486,7 @@ function normalizeOrThrow(input: TableDefinitionInput): TableSpec {
   const billing = billingOf(table);
   const gsis = gsisOf(table, billing, attributeTypes, notes);
   const lsis = lsisOf(table, keySchema, attributeTypes);
-  const vectorIndexes = vectorIndexesOf(table, notes);
+  const vectorIndexes = vectorIndexesOf(table, attributeTypes, notes);
 
   const streamRaw = table.StreamSpecification;
   let stream: TableSpec['stream'];
@@ -541,8 +549,8 @@ export function normalize(input: TableDefinitionInput): NormalizeResult {
 /**
  * The attribute definitions a target must declare: exactly the attributes its
  * emitted key schemas reference, in first-appearance order (table keys, GSIs,
- * LSIs, then — when the target emits vector indexes — vector attributes and
- * search-schema attributes that carry a declared type). Terraform emits no
+ * LSIs, then — when the target emits vector indexes — their search-schema
+ * attributes). Terraform emits no
  * vector block and therefore never defines a vector-only attribute, which its
  * provider would reject as unindexed.
  */
@@ -557,11 +565,11 @@ export function referencedAttributes(
   for (const k of spec.keySchema) add(k.name);
   for (const g of spec.gsis) for (const k of g.keySchema) add(k.name);
   for (const l of spec.lsis) for (const k of l.keySchema) add(k.name);
+  // The vector attribute itself is a list and can never be declared (S/N/B
+  // only); its search-schema attributes are scalars the service requires
+  // declared, and normalize() has already checked they are.
   if (opts.vectorIndexes) {
-    for (const v of spec.vectorIndexes) {
-      add(v.attribute);
-      for (const el of v.searchSchema) add(el.name);
-    }
+    for (const v of spec.vectorIndexes) for (const el of v.searchSchema) add(el.name);
   }
   return names.map((name) => ({name, type: spec.attributeTypes.get(name) as ScalarAttributeType}));
 }

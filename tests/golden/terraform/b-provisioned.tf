@@ -2,7 +2,7 @@
 # Source: aws dynamodb describe-table + describe-time-to-live, region us-east-1
 #
 # Not emitted (configure these yourself if the live table uses them):
-#   - point-in-time recovery (DescribeTable does not return it; applying a Terraform replica block disables it on that replica unless set)
+#   - point-in-time recovery (DescribeTable does not return it; a replica declared without it has PITR off)
 #   - tags (DescribeTable does not return them; applying removes live tags)
 #   - auto-scaling policies (a fixed capacity snapshot is emitted instead; applying replaces the policy with that snapshot)
 #   - warm throughput (DescribeTable reports the CURRENT value, which grows with traffic; emitting it would bill a pre-warm)

@@ -212,6 +212,14 @@ describe('normalize — refusals', () => {
     expect(reason(name, overrides)).toMatch(pattern);
   });
 
+  it('refuses a vector search-schema attribute with no declared type', () => {
+    const table = fixtureTable('d-vector');
+    table.AttributeDefinitions = (table.AttributeDefinitions ?? []).filter((d) => d.AttributeName !== 'category');
+    const result = normalize({table});
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/search schema attribute "category" has no entry in AttributeDefinitions/);
+  });
+
   it('accepts the 4-letter sovereign-cloud region prefix', () => {
     const table = fixtureTable('a-core');
     expect(normalize({table, region: 'eusc-de-east-1'}).ok).toBe(true);
