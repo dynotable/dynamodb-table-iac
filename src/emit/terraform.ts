@@ -4,6 +4,7 @@ import {normalize, referencedAttributes} from '../normalize';
 import type {GsiSpec, ReplicaSpec, TableSpec, VectorIndexSpec} from '../normalize';
 import {NOT_EMITTED} from '../not-emitted';
 import type {EmitResult, TableDefinitionInput} from '../types';
+import {REGION_UNKNOWN_PREFIX, sourceDescription} from './common';
 
 // Terraform `aws_dynamodb_table` (hashicorp/aws >= 6.29 — GSI keys as repeated
 // `key_schema` blocks, which the provider deprecated `hash_key`/`range_key`
@@ -40,22 +41,16 @@ function joinBlocks(blocks: string[][]): string[] {
 }
 
 function header(spec: TableSpec, resourceId: string): string[] {
-  const source =
-    spec.ttl.kind === 'not-provided'
-      ? 'aws dynamodb describe-table'
-      : 'aws dynamodb describe-table + describe-time-to-live';
   const lines = [
     `# dynamodb-table-iac: Terraform for DynamoDB table ${q(spec.tableName)}`,
-    `# Source: ${source}, region ${spec.homeRegion ?? 'unknown'}`,
+    `# Source: ${sourceDescription(spec)}`,
     '#',
     '# Not emitted (configure these yourself if the live table uses them):',
     ...NOT_EMITTED.map((item) => `#   - ${item}`)
   ];
   const notes = [...spec.notes];
   if (spec.homeRegion === undefined) {
-    notes.unshift(
-      "Region: unknown — the table's ARN carries no AWS region (DynamoDB Local) and none was given, so no provider region is emitted; add one before applying."
-    );
+    notes.unshift(`${REGION_UNKNOWN_PREFIX}, so no provider region is emitted; add one before applying.`);
   }
   if (notes.length > 0) {
     lines.push('#', '# Notes:', ...notes.map((note) => `#   - ${note}`));
