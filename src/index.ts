@@ -55,3 +55,4 @@ export {NOT_EMITTED} from './not-emitted';
 export {emitTerraform, renderTerraform} from './emit/terraform';
 export {buildCloudFormationTemplate, emitCloudFormation, renderCloudFormation} from './emit/cloudformation';
 export type {CloudFormationOptions, CloudFormationSyntax} from './emit/cloudformation';
+export {CDK_LIB_VERSION, emitCdk, renderCdk} from './emit/cdk';

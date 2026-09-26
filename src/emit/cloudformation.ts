@@ -62,7 +62,18 @@ function gsi(spec: TableSpec, g: GsiSpec): YamlMap {
   return node;
 }
 
-function vectorIndex(v: VectorIndexSpec): YamlMap {
+/** The `AttributeDefinitions` list, incl. vector search-schema attributes — shared with the CDK L1 override. */
+export function cfnAttributeDefinitions(spec: TableSpec): YamlNode[] {
+  return referencedAttributes(spec, {vectorIndexes: true}).map((a) => ({
+    AttributeName: q(a.name),
+    // Quoted: a bare `N` is a YAML 1.1 boolean word (y|Y|n|N), and the CloudFormation
+    // parser is YAML 1.1.
+    AttributeType: q(a.type)
+  }));
+}
+
+/** One `VectorIndexes[]` entry — shared with the CDK L1 override. */
+export function cfnVectorIndex(v: VectorIndexSpec): YamlMap {
   const node: YamlMap = {
     IndexName: q(v.name),
     VectorAttribute: {AttributeName: q(v.attribute)},
@@ -118,12 +129,7 @@ function properties(spec: TableSpec): YamlMap {
   const props: YamlMap = {
     TableName: q(spec.tableName),
     BillingMode: spec.billing.mode,
-    AttributeDefinitions: referencedAttributes(spec, {vectorIndexes: true}).map((a) => ({
-      AttributeName: q(a.name),
-      // Quoted: a bare `N` is a YAML 1.1 boolean word (y|Y|n|N), and the CloudFormation
-      // parser is YAML 1.1.
-      AttributeType: q(a.type)
-    })),
+    AttributeDefinitions: cfnAttributeDefinitions(spec),
     KeySchema: keySchema(spec.keySchema)
   };
   if (spec.gsis.length > 0) props.GlobalSecondaryIndexes = spec.gsis.map((g) => gsi(spec, g));
@@ -134,7 +140,7 @@ function properties(spec: TableSpec): YamlMap {
       Projection: projection(l.projection)
     }));
   }
-  if (spec.vectorIndexes.length > 0) props.VectorIndexes = spec.vectorIndexes.map(vectorIndex);
+  if (spec.vectorIndexes.length > 0) props.VectorIndexes = spec.vectorIndexes.map(cfnVectorIndex);
   if (spec.ttl.kind === 'enabled') {
     props.TimeToLiveSpecification = {AttributeName: q(spec.ttl.attribute), Enabled: true};
   }
