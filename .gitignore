@@ -1,0 +1,6 @@
+node_modules
+dist
+.validate-work/
+validate/cdk/node_modules
+validate/cdk/out
+validate/cdk/src

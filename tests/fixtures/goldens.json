@@ -1,0 +1,15 @@
+{
+  "a-core": {"fixture": "a-core", "region": "us-east-1"},
+  "b-provisioned": {"fixture": "b-provisioned", "region": "us-east-1"},
+  "b-hash-only": {"fixture": "b-hash-only", "region": "us-east-1"},
+  "c-stream": {"fixture": "c-stream", "region": "us-east-1"},
+  "c-extras-aws": {"fixture": "c-extras-aws"},
+  "d-vector": {"fixture": "d-vector"},
+  "e-multikey-gsi": {"fixture": "e-multikey-gsi"},
+  "f-hostile": {"fixture": "f-hostile"},
+  "h1-eventual-ondemand": {"fixture": "h1-eventual-ondemand"},
+  "h2-eventual-provisioned": {"fixture": "h2-eventual-provisioned"},
+  "h3-strong-cross-continent": {"fixture": "h3-strong-cross-continent"},
+  "h4-strong-witness": {"fixture": "h4-strong-witness"},
+  "i-regionless": {"fixture": "b-provisioned"}
+}

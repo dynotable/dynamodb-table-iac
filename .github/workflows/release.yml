@@ -1,0 +1,82 @@
+name: Release
+
+# Publishes to npm when a version tag (v*) is pushed. Uses npm Trusted
+# Publishing (OIDC) — no npm token is stored in this repository. The trusted
+# publisher must be configured on npmjs.com for this package (Settings →
+# Trusted Publisher → GitHub Actions, repo dynotable/dynamodb-table-iac,
+# workflow release.yml). The first-ever publish of the package is manual;
+# every publish after that goes through this workflow with provenance.
+#
+# Trusted Publishing matches on repo + WORKFLOW FILENAME, not on the triggering
+# event, so the workflow_dispatch path below publishes with provenance exactly
+# like the tag path.
+
+on:
+  push:
+    tags: ['v*']
+  # Escape hatch for environments whose git credentials can push branches but
+  # not refs/tags. The version is published from package.json on the ref being
+  # run, and `version` is a required restatement of it so a mis-dispatch fails
+  # BEFORE publishing rather than burning a version number on npm (a publish
+  # cannot be taken back). The tag is created server-side afterwards, so a
+  # dispatched release is still traceable to a ref.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the leading v (must equal package.json)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # OIDC for npm Trusted Publishing + provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag on the workflow_dispatch path
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # Fail before any build work if the dispatcher named a version this ref
+      # does not actually carry.
+      - name: Assert dispatched version matches package.json
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          MANIFEST="$(node -p "require('./package.json').version")"
+          if [ "$MANIFEST" != "${{ inputs.version }}" ]; then
+            echo "dispatched version '${{ inputs.version }}' != package.json '$MANIFEST'" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$MANIFEST" >/dev/null 2>&1; then
+            echo "tag v$MANIFEST already exists — that version was already released" >&2
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm check:package
+      - run: npm publish --provenance --access public
+
+      # Only after a successful publish, so a failed run leaves no tag claiming
+      # a release that never reached npm.
+      - name: Tag the published commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          git push origin "refs/tags/v${{ inputs.version }}"
