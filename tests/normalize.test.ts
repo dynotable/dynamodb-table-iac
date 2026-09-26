@@ -77,7 +77,7 @@ describe('normalize — authored AWS shapes', () => {
   it('c-extras-aws: SSE KMS without a key, table class, on-demand read max only', () => {
     const s = spec('c-extras-aws');
     expect(s.homeRegion).toBe('eu-west-1');
-    expect(s.sse).toEqual({kind: 'kms'});
+    expect(s.sse).toEqual({kind: 'kms', liveKeyArn: 'arn:aws:kms:eu-west-1:123456789012:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b'});
     expect(s.tableClass).toBe('STANDARD_INFREQUENT_ACCESS');
     expect(s.billing).toEqual({mode: 'PAY_PER_REQUEST', max: {maxRead: 2000}});
     expect(s.notes.some((n) => n.includes('kms') && n.includes('1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b'))).toBe(true);

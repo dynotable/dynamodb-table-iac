@@ -52,3 +52,4 @@ export type {
 } from './normalize';
 export {pascalId, terraformId} from './names';
 export {NOT_EMITTED} from './not-emitted';
+export {emitTerraform, renderTerraform} from './emit/terraform';

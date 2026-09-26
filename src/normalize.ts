@@ -75,6 +75,8 @@ export interface ReplicaSpec {
   readCapacity?: number;
   maxRead?: number;
   gsiOverrides: ReplicaGsiOverride[];
+  /** The replica's own KMS key, for a commented-out setting — never emitted live (D3). */
+  kmsKeyId?: string;
 }
 
 export interface TableSpec {
@@ -90,7 +92,8 @@ export interface TableSpec {
   ttl: TtlSpec;
   deletionProtection: boolean;
   stream: 'NEW_IMAGE' | 'OLD_IMAGE' | 'NEW_AND_OLD_IMAGES' | 'KEYS_ONLY' | undefined;
-  sse: {kind: 'kms'} | undefined;
+  /** `liveKeyArn` is for a commented-out setting only — never emitted live (D3). */
+  sse: {kind: 'kms'; liveKeyArn?: string} | undefined;
   tableClass: 'STANDARD_INFREQUENT_ACCESS' | undefined;
   replicas: ReplicaSpec[];
   consistency: 'EVENTUAL' | 'STRONG';
@@ -442,6 +445,7 @@ function replicasOf(
 
 function replicaSpecOf(r: ReplicaDescription, region: string, status: string): ReplicaSpec {
   const spec: ReplicaSpec = {region, status, gsiOverrides: []};
+  if (r.KMSMasterKeyId) spec.kmsKeyId = r.KMSMasterKeyId;
   if (r.ReplicaTableClassSummary?.TableClass === 'STANDARD_INFREQUENT_ACCESS') {
     spec.tableClass = 'STANDARD_INFREQUENT_ACCESS';
   }
@@ -488,7 +492,7 @@ function normalizeOrThrow(input: TableDefinitionInput): TableSpec {
   let sse: TableSpec['sse'];
   const sseRaw = table.SSEDescription;
   if (sseRaw?.Status === 'ENABLED' && sseRaw.SSEType === 'KMS') {
-    sse = {kind: 'kms'};
+    sse = sseRaw.KMSMasterKeyArn ? {kind: 'kms', liveKeyArn: sseRaw.KMSMasterKeyArn} : {kind: 'kms'};
     if (sseRaw.KMSMasterKeyArn) {
       notes.push(`SSE uses KMS key ${q(sseRaw.KMSMasterKeyArn)} — if that is a customer-managed key, set it on the emitted encryption setting.`);
     }
