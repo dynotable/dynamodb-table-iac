@@ -148,6 +148,17 @@ describe('emitCloudFormation — invariants stated from the fixtures', () => {
     // Exactly one resource, however many payloads tried to open another.
     expect(Object.keys(template('f-hostile').Resources)).toEqual(['Yes']);
   });
+
+  // cfn-lint reads JSON templates through its YAML 1.1 loader, which rejects a
+  // raw C1 control or NEL (E0000) even though JSON allows them unescaped.
+  it('escapes C1 controls, NEL and line separators in the JSON output too, without changing the value', () => {
+    const out = emit('f-hostile', 'json');
+    expect(out).not.toMatch(/[\u2028\u2029\u0085\u0080-\u009f\u007f\ufeff]/);
+    expect(out).toContain('"nel\\u0085char"');
+    expect(out).toContain('"c1\\u009fchar"');
+    expect(out).toContain('"line\\u2028sep"');
+    expect(JSON.parse(out)).toEqual(parseYaml(emit('f-hostile', 'yaml')));
+  });
 });
 
 describe('emitCloudFormation — refusals pass through from normalize()', () => {

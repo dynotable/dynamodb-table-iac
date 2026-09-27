@@ -38,9 +38,18 @@ export function tsString(value: string): string {
   return JSON.stringify(value).replace(LINE_TERMINATORS, unicodeEscape);
 }
 
+/**
+ * JSON text with every character a YAML 1.1 parser would misread escaped.
+ * Needed for whole JSON documents too: cfn-lint loads a JSON template
+ * through its YAML loader.
+ */
+export function escapeYamlUnsafe(json: string): string {
+  return json.replace(YAML_UNSAFE, unicodeEscape);
+}
+
 /** A YAML double-quoted scalar safe for YAML 1.1 AND 1.2 parsers. */
 export function yamlString(value: string): string {
-  return JSON.stringify(value).replace(YAML_UNSAFE, unicodeEscape);
+  return escapeYamlUnsafe(JSON.stringify(value));
 }
 
 /**

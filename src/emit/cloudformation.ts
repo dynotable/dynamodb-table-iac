@@ -3,7 +3,7 @@ import {normalize, referencedAttributes} from '../normalize';
 import type {GsiSpec, KeySpec, ProjectionSpec, ReplicaSpec, TableSpec, VectorIndexSpec} from '../normalize';
 import {NOT_EMITTED} from '../not-emitted';
 import type {EmitResult, TableDefinitionInput} from '../types';
-import {quoteForComment} from '../escape';
+import {escapeYamlUnsafe, quoteForComment} from '../escape';
 import {ADOPTION_HINT_CFN, effectiveStreamView, headerNotes, sourceDescription} from './common';
 import {quoted, renderYaml, toJsonValue} from './yaml';
 import type {YamlMap, YamlNode} from './yaml';
@@ -203,7 +203,7 @@ export function buildCloudFormationTemplate(spec: TableSpec): {template: YamlMap
 
 export function renderCloudFormation(spec: TableSpec, opts: CloudFormationOptions): string {
   const {template, logicalId} = buildCloudFormationTemplate(spec);
-  if (opts.syntax === 'json') return JSON.stringify(toJsonValue(template), null, 2) + '\n';
+  if (opts.syntax === 'json') return escapeYamlUnsafe(JSON.stringify(toJsonValue(template), null, 2)) + '\n';
   const header = [
     `# dynamodb-table-iac: CloudFormation for DynamoDB table ${quoteForComment(spec.tableName)}`,
     `# Source: ${sourceDescription(spec)}`

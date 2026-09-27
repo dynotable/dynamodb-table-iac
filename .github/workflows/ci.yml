@@ -81,4 +81,7 @@ jobs:
       - run: pnpm build
       - run: cfn-lint --non-zero-exit-code error tests/golden/cloudformation/*
       - run: node scripts/render-cfn-json.ts "$RUNNER_TEMP/cfn-json"
+      # Only one JSON golden exists; lint the JSON form of EVERY fixture, since
+      # cfn-lint reads JSON through its YAML 1.1 loader.
+      - run: cfn-lint --non-zero-exit-code error "$RUNNER_TEMP"/cfn-json/*.json
       - run: python3 scripts/check-yaml-11.py tests/golden/cloudformation "$RUNNER_TEMP/cfn-json"
