@@ -1,6 +1,6 @@
 {
   "name": "dynamodb-table-iac",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Export a DynamoDB table definition (DescribeTable JSON) as runnable infrastructure code: Terraform (aws_dynamodb_table), AWS CDK (TableV2) or CloudFormation (AWS::DynamoDB::GlobalTable), global-table replicas included. Zero dependencies.",
   "keywords": [
     "dynamodb",
